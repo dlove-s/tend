@@ -272,7 +272,7 @@ function WorkspaceEditor({
   useEffect(() => setValue(content), [content]);
   const changed = value.trimEnd() !== content.trimEnd();
   return (
-    <section className="workspace-editor" onFocusCapture={onFocus}>
+    <section className="workspace-editor">
       <div className="workspace-editor-head">
         <h3>{label}</h3>
         <div className="workspace-editor-actions">
@@ -300,7 +300,7 @@ function WorkspaceEditor({
           })()}>{saving ? "Saving…" : "Save"}</button>
         </div>
       </div>
-      <textarea value={value} onChange={(event) => setValue(event.target.value)} rows={Math.max(7, Math.min(20, value.split("\n").length + 2))} />
+      <textarea value={value} onFocus={onFocus} onClick={onFocus} onChange={(event) => setValue(event.target.value)} rows={Math.max(7, Math.min(20, value.split("\n").length + 2))} />
     </section>
   );
 }
@@ -402,7 +402,7 @@ function InspectorPanel({ value, state, onClose, onChanged }: { value: Inspector
   );
 }
 
-function RevisionProposals({ proposals, onApply }: { proposals: RevisionProposal[]; onApply: (proposal: RevisionProposal) => void }) {
+function RevisionProposals({ proposals, onApply, onReject }: { proposals: RevisionProposal[]; onApply: (proposal: RevisionProposal) => void; onReject: (proposal: RevisionProposal) => void }) {
   if (!proposals.length) return null;
   return (
     <section className="proposal-stack">
@@ -416,7 +416,10 @@ function RevisionProposals({ proposals, onApply }: { proposals: RevisionProposal
             <div><span>Before</span><pre>{proposal.previous}</pre></div>
             <div><span>After</span><pre>{proposal.next}</pre></div>
           </div>
-          <button className="button primary" onClick={() => onApply(proposal)}>Apply revision</button>
+          <div className="proposal-actions">
+            <button className="button primary" onClick={() => onApply(proposal)}>Apply revision</button>
+            <button className="button" onClick={() => onReject(proposal)}>Reject</button>
+          </div>
         </article>
       ))}
     </section>
@@ -459,8 +462,7 @@ function Dock({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const arrow = event.key === "ArrowUp" || event.key === "ArrowDown";
-      const dockIsActive = event.target === inputRef.current;
-      if (!arrow || (!dockIsActive && !event.altKey)) return;
+      if (!arrow || !event.altKey) return;
       event.preventDefault();
       zoom(event.key === "ArrowUp" ? 1 : -1);
     };
@@ -484,7 +486,7 @@ function Dock({
           <button className="button primary" type="submit">Send</button>
         </div>
         <div className="dock-footer">
-          <div className="dock-hints"><kbd>↑</kbd>/<kbd>↓</kbd> scope in dock · <kbd>⌥↑</kbd>/<kbd>⌥↓</kbd> anywhere · hold <kbd>{state.dictation.activationLabel}</kbd> to dictate · <kbd>Enter</kbd> send</div>
+          <div className="dock-hints"><kbd>⌥↑</kbd>/<kbd>⌥↓</kbd> change scope · hold <kbd>{state.dictation.activationLabel}</kbd> to dictate · <kbd>Enter</kbd> send</div>
           {feed.sweep.recollectionOffered && <div className="recollection-status"><span>{feed.sweep.statusMessage}</span><button type="button" onClick={onRecollect}>Search sources again</button></div>}
         </div>
       </form>
@@ -513,6 +515,7 @@ export default function App() {
   });
   const [targetVersion, setTargetVersion] = useState(0);
   const pageRef = useRef<HTMLElement>(null);
+  const dockTargetRef = useRef<VoiceTarget | null>(dockTarget);
   const toastTimerRef = useRef<number | null>(null);
 
   const refresh = useCallback(async (nextFeed = feedId) => setState(await api(`/api/state?feed=${encodeURIComponent(nextFeed)}`)), [feedId]);
@@ -536,7 +539,7 @@ export default function App() {
     if (!feed) return [{ kind: "attention" }];
     if (screen === "feed") return [
       ...(activeCard ? [{ kind: "card" as const, feedId: feed.config.id, cardId: activeCard.id }] : []),
-      { kind: "sweep", feedId: feed.config.id, ...(feed.sweep.currentRunId ? { runId: feed.sweep.currentRunId } : {}) },
+      { kind: "sweep", feedId: feed.config.id, ...(feed.sweep.currentBatchId ? { batchId: feed.sweep.currentBatchId } : {}) },
       { kind: "feed", feedId: feed.config.id },
       { kind: "attention" },
     ];
@@ -587,11 +590,14 @@ export default function App() {
   };
 
   const changeDockTarget = useCallback((next: VoiceTarget) => {
+    if (sameTarget(dockTargetRef.current, next)) return;
+    dockTargetRef.current = next;
     setDockTarget(next);
     sessionStorage.setItem("attention.voiceTarget", JSON.stringify(next));
     setTargetVersion((current) => current + 1);
     void post<VoiceTarget>("/api/voice/target-change", { feedId: feed?.config.id ?? feedId, target: next }).then((validated) => {
-      if (sameTarget(validated, next)) return;
+      if (sameTarget(validated, next) || !sameTarget(dockTargetRef.current, next)) return;
+      dockTargetRef.current = validated;
       setDockTarget(validated);
       sessionStorage.setItem("attention.voiceTarget", JSON.stringify(validated));
       setTargetVersion((current) => current + 1);
@@ -621,13 +627,11 @@ export default function App() {
     void (async () => {
       try {
         const result = await post<any>("/api/voice/instructions", { feedId: feed.config.id, target: dockTarget, instruction });
-        if (result.kind === "card_work") {
+        if (result.kind === "scoped_work") {
           const queued = { feedId: feed.config.id, workId: result.work.id };
           setUndoQueuedWork(queued);
           window.setTimeout(() => setUndoQueuedWork((current) => current?.workId === queued.workId ? null : current), 5_000);
-          showToast("Queued for Codex");
-        } else if (result.kind === "sweep_feedback") {
-          showToast("Sweep rejudged");
+          showToast(result.work.intent === "sweep_rejudge" ? "Feedback queued for Codex" : "Queued for Codex");
         } else {
           showToast("Revision proposal ready for approval");
         }
@@ -647,6 +651,7 @@ export default function App() {
       showToast(error instanceof Error ? error.message : String(error));
     }
   })();
+  const rejectProposal = (proposal: RevisionProposal) => void withRefresh(() => post(`/api/revision-proposals/${proposal.id}/reject`), "Revision rejected");
   const recollect = () => void withRefresh(() => post(`/api/feeds/${feed?.config.id}/recollect`), "Source search queued");
   const approve = (card = activeCard) => card && feed && void withRefresh(() => post(`/api/feeds/${feed.config.id}/cards/${card.id}/approve`), "Approved and queued for Codex");
   const dismiss = (card = activeCard) => {
@@ -683,7 +688,7 @@ export default function App() {
   if (screen === "workspace") return (
     <>
       <TopBar state={state} onFeed={changeFeed} onInspector={setInspector} onWorkspace={openWorkspace} />
-      <div className="workspace-proposals"><RevisionProposals proposals={state.proposals} onApply={applyProposal} /></div>
+      <div className="workspace-proposals"><RevisionProposals proposals={state.proposals} onApply={applyProposal} onReject={rejectProposal} /></div>
       <PromptWorkspace state={state} tab={workspaceTab} onTab={(nextTab) => { setWorkspaceTab(nextTab); setWorkspaceFocus(null); const url = new URL(location.href); url.searchParams.set("workspace", nextTab); history.replaceState({}, "", url); }} onBack={closeWorkspace} onInspector={setInspector} onSaved={showToast} onTargetFocus={(target) => { setWorkspaceFocus(target); changeDockTarget(target); }} />
       <Dock state={state} feed={feed} target={resolvedDockTarget} ladder={ladder} targetVersion={targetVersion} onTarget={changeDockTarget} onSubmit={instruct} onRecollect={recollect} />
       <InspectorPanel value={inspector} state={state} onClose={() => setInspector(null)} onChanged={(next) => { if (next) changeFeed(next); void refresh(next); }} />
@@ -707,7 +712,7 @@ export default function App() {
         <button className="tab-quiet" onClick={() => openWorkspace("feed")}>Prompts & sources</button>
       </nav>
       <main className="page" ref={pageRef}>
-        <RevisionProposals proposals={state.proposals} onApply={applyProposal} />
+        <RevisionProposals proposals={state.proposals} onApply={applyProposal} onReject={rejectProposal} />
         {tab === "review" && updated.length > 0 && <div className="section-label">Updated for review <span>{updated.length}</span></div>}
         {cards.map((card, index) => (
           <Fragment key={card.id}>

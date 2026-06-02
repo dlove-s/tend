@@ -43,6 +43,10 @@ pnpm cli -- action:verify --feed <feed-id> --work <work-id> --token <capability-
 Repeat claim until it returns `null`. An active claimed item is replayed so restart recovery stays
 simple and visible.
 
+Dock work includes its explicit `target` and `intent`. Interpret the utterance from current state:
+write back cards, source changes, reranked sweeps, or a revision proposal as appropriate. Do not
+treat broad natural-language dock input as a literal prompt edit.
+
 ## Collect
 
 Read the effective recipe with:
@@ -64,6 +68,24 @@ pnpm cli -- source:record-run \
 ```
 
 Do not pad. If nothing deserves attention, record an empty judgment set and stop.
+
+After the relevant sources have completed, record one judged sweep batch separately. A batch can
+refer to multiple source runs:
+
+```bash
+pnpm cli -- sweep:record-batch --feed <feed-id> --runs '["<run-id>"]'
+```
+
+For scoped sweep feedback, rejudge the visible card IDs from its trace and write back the explicit
+kept order and removed IDs. Only this write-back may reorder or hide cards:
+
+```bash
+pnpm cli -- sweep:rejudge \
+  --feed <feed-id> \
+  --feedback <feedback-id> \
+  --ordered-cards '["<kept-card-id>"]' \
+  --removed-cards '["<removed-card-id>"]'
+```
 
 For an existing local JSON artifact, import it without passing private payload text through the
 shell:
@@ -103,3 +125,18 @@ become explicit proposal cards:
 ```bash
 pnpm cli -- proposal:create --feed <feed-id> --title "..." --brief "..." --instruction "..."
 ```
+
+For a prompt, recipe, feed-policy, or global-policy diff that should appear in the browser approval
+stack, write the actual proposed content rather than appending the user's raw instruction:
+
+```bash
+pnpm cli -- revision:propose \
+  --feed <anchor-feed-id> \
+  --target '{"kind":"prompt_layer","feedId":"<feed-id>","promptId":"judge.md"}' \
+  --instruction "Why this change is proposed" \
+  --content "<complete proposed markdown>"
+```
+
+`action:verify` is mandatory operator procedure before external connector mutation. The app enforces
+the digest again when work completes, but this prototype does not yet wrap connector tools in a
+capability-scoped executor. Do not describe direct connector mutation as mechanically prevented.

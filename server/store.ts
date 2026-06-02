@@ -10,6 +10,7 @@ import type {
   PolicyRevision,
   RevisionProposal,
   SourceRecipe,
+  SweepBatch,
   SweepFeedbackTrace,
   SweepState,
   ThreadBinding,
@@ -39,7 +40,7 @@ export const FEED_PROMPT_NAMES = ["judge.md", "compose-card.md"] as const;
 
 function defaultSweepState(): SweepState {
   return {
-    currentRunId: null,
+    currentBatchId: null,
     lastFeedbackId: null,
     recollectionOffered: false,
     statusMessage: null,
@@ -123,7 +124,10 @@ export class AttentionStore {
   async readRevisionProposals(anchorFeedId: string): Promise<RevisionProposal[]> {
     const proposals = await this.readDirectoryJson<RevisionProposal>(this.path("revision-proposals"));
     return proposals
-      .filter((proposal) => proposal.anchorFeedId === anchorFeedId && proposal.status === "proposed")
+      .filter((proposal) =>
+        proposal.status === "proposed" &&
+        (proposal.anchorFeedId === anchorFeedId || proposal.target.kind === "attention" || proposal.target.kind === "global_prompt")
+      )
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 
@@ -177,7 +181,7 @@ export class AttentionStore {
     if (await this.isValidVoiceTarget(target)) {
       if (target.kind !== "sweep") return target;
       const sweep = await this.readSweepState(target.feedId);
-      return { kind: "sweep", feedId: target.feedId, ...(sweep.currentRunId ? { runId: sweep.currentRunId } : {}) };
+      return { kind: "sweep", feedId: target.feedId, ...(sweep.currentBatchId ? { batchId: sweep.currentBatchId } : {}) };
     }
     if (target.kind === "card") return this.validateVoiceTarget({ kind: "sweep", feedId: target.feedId });
     if (target.kind === "sweep" || target.kind === "source_recipe" || target.kind === "prompt_layer") return this.validateVoiceTarget({ kind: "feed", feedId: target.feedId });
@@ -239,7 +243,14 @@ export class AttentionStore {
 
   async readSweepState(feedId: string): Promise<SweepState> {
     const file = this.feedPath(feedId, "sweep-state.json");
-    return existsSync(file) ? readJson<SweepState>(file) : defaultSweepState();
+    if (!existsSync(file)) return defaultSweepState();
+    const state = await readJson<SweepState & { currentRunId?: string | null }>(file);
+    return {
+      currentBatchId: state.currentBatchId ?? state.currentRunId ?? null,
+      lastFeedbackId: state.lastFeedbackId,
+      recollectionOffered: state.recollectionOffered,
+      statusMessage: state.statusMessage,
+    };
   }
 
   async writeSweepState(feedId: string, state: SweepState): Promise<void> {
@@ -248,6 +259,14 @@ export class AttentionStore {
 
   async writeSweepFeedback(trace: SweepFeedbackTrace): Promise<void> {
     await writeJson(this.feedPath(trace.feedId, "sweep-feedback", `${trace.id}.json`), trace);
+  }
+
+  async readSweepFeedback(feedId: string, feedbackId: string): Promise<SweepFeedbackTrace> {
+    return readJson<SweepFeedbackTrace>(this.feedPath(feedId, "sweep-feedback", `${feedbackId}.json`));
+  }
+
+  async writeSweepBatch(batch: SweepBatch): Promise<void> {
+    await writeJson(this.feedPath(batch.feedId, "sweeps", `${batch.id}.json`), batch);
   }
 
   async readConfig(feedId: string): Promise<FeedConfig> {

@@ -56,6 +56,12 @@ switch (command) {
   case "source:record-run":
     output = await domain.recordSourceRun(required("feed"), required("source"), json(required("snapshots")), json(required("judgments")), json(required("checkpoint")));
     break;
+  case "sweep:record-batch":
+    output = await domain.recordSweepBatch(required("feed"), json(required("runs")));
+    break;
+  case "sweep:rejudge":
+    output = await domain.recordSweepRejudgment(required("feed"), required("feedback"), json(required("ordered-cards")), json(required("removed-cards")));
+    break;
   case "source:import-json-file": {
     const sourcePath = required("path");
     output = await domain.recordSourceRun(required("feed"), required("source"), [JSON.parse(await readFile(sourcePath, "utf8"))], [], { importedFrom: sourcePath, importedAt: new Date().toISOString() });
@@ -177,6 +183,9 @@ switch (command) {
   case "policy:revert":
     output = await domain.revertPolicyRevision(required("feed"), required("revision"));
     break;
+  case "revision:propose":
+    output = await domain.proposeRevision(required("feed"), json(required("target")), required("instruction"), required("content"));
+    break;
   case "global-policy:update":
     await domain.updateGlobalPolicy(required("content"));
     output = { ok: true };
@@ -211,6 +220,8 @@ switch (command) {
         "source:add --feed <id> --brief <plain-English source recipe>",
         "source:remove --feed <id> --source <id>",
         "source:record-run --feed <id> --source <id> --snapshots <json> --judgments <json> --checkpoint <json>",
+        "sweep:record-batch --feed <id> --runs <json-array>",
+        "sweep:rejudge --feed <id> --feedback <id> --ordered-cards <json-array> --removed-cards <json-array>",
         "source:import-json-file --feed <id> --source <id> --path <local-json-file>",
         "source:import-file --feed <id> --source <id> --path <local-text-or-jsonl-file>",
         "card:upsert --feed <id> --card <json>",
@@ -226,6 +237,7 @@ switch (command) {
         "work:fail --feed <id> --work <id> --token <token> --error <text>",
         "policy:apply --feed <id> --content <markdown> --reason <text> [--source micro_learning]",
         "policy:revert --feed <id> --revision <id>",
+        "revision:propose --feed <anchor-id> --target <json> --instruction <text> --content <markdown>",
         "global-policy:update --content <markdown>",
         "global-prompt:update --prompt <allowlisted-name.md> --content <markdown>",
         "proposal:create --feed <id> --title <text> --brief <text> --instruction <text>",

@@ -44,11 +44,13 @@ describe("filesystem workspace", () => {
   });
 
   test("keeps raw snapshots immutable and stores run checkpoints separately", async () => {
-    const { root, domain } = await setup();
+    const { root, domain, store } = await setup();
+    const batchId = await domain.recordSweepBatch("inbox", []);
     const run = await domain.recordSourceRun("inbox", "gmail-inbox", [{ threadId: "gmail-1", subject: "Hello" }], [{ decision: "keep" }], { cursor: "gmail-1" });
     await expect(domain.store.writeRawSnapshot("inbox", run, "gmail-inbox", "snapshot-1", { changed: true })).rejects.toThrow("immutable");
     const checkpoint = JSON.parse(await readFile(path.join(root, "feeds", "inbox", "checkpoints", "gmail-inbox.json"), "utf8"));
     expect(checkpoint.cursor).toBe("gmail-1");
+    expect((await store.readSweepState("inbox")).currentBatchId).toBe(batchId);
   });
 
   test("creates a feed and source recipe from plain English", async () => {
@@ -231,8 +233,8 @@ describe("approval, learning, and heartbeat safety", () => {
 describe("scoped persistent voice dock routing", () => {
   test("falls back from stale object targets to the nearest valid parent scope", async () => {
     const { domain } = await setup();
-    const runId = await domain.recordSourceRun("inbox", "gmail-inbox", [], [], { cursor: null });
-    expect(await domain.store.validateVoiceTarget({ kind: "card", feedId: "inbox", cardId: "missing-card" })).toEqual({ kind: "sweep", feedId: "inbox", runId });
+    const batchId = await domain.recordSweepBatch("inbox", []);
+    expect(await domain.store.validateVoiceTarget({ kind: "card", feedId: "inbox", cardId: "missing-card" })).toEqual({ kind: "sweep", feedId: "inbox", batchId });
     expect(await domain.store.validateVoiceTarget({ kind: "source_recipe", feedId: "inbox", sourceId: "missing-source" })).toEqual({ kind: "feed", feedId: "inbox" });
     expect(await domain.store.validateVoiceTarget({ kind: "prompt_layer", feedId: "missing-feed", promptId: "judge.md" })).toEqual({ kind: "attention" });
     expect(await domain.store.validateVoiceTarget({ kind: "global_prompt", promptId: "../nope.md" })).toEqual({ kind: "attention" });
@@ -241,46 +243,86 @@ describe("scoped persistent voice dock routing", () => {
   test("queues card speech through the existing scoped work queue", async () => {
     const { store, domain } = await setup();
     const result = await domain.submitVoiceInstruction("inbox", { kind: "card", feedId: "inbox", cardId: "inbox-ready-to-collect" }, "Collect the first real sweep.");
-    expect(result.kind).toBe("card_work");
-    if (result.kind !== "card_work") throw new Error("Expected card work");
+    expect(result.kind).toBe("scoped_work");
     expect(result.work.cardId).toBe("inbox-ready-to-collect");
+    expect(result.work.kind).toBe("scoped_instruction");
+    expect(result.work.target).toEqual({ kind: "card", feedId: "inbox", cardId: "inbox-ready-to-collect" });
     expect((await store.readCard("inbox", "inbox-ready-to-collect")).status).toBe("queued");
     expect((await store.readEvents("inbox")).map((event) => event.type)).toContain("voice.instruction_submitted");
   });
 
-  test("rejudges a sweep locally and only queues recollection after an explicit request", async () => {
+  test("queues sweep feedback for Codex and only changes cards after an explicit rejudgment write-back", async () => {
     const { store, domain } = await setup();
     await domain.seedDemo();
     const result = await domain.submitVoiceInstruction("company-attention", { kind: "sweep", feedId: "company-attention" }, "These are too infrastructure-heavy. I want product taste and evidence.");
-    expect(result.kind).toBe("sweep_feedback");
-    if (result.kind !== "sweep_feedback") throw new Error("Expected sweep feedback");
+    expect(result.kind).toBe("scoped_work");
+    if (!("trace" in result)) throw new Error("Expected sweep trace");
     expect(result.trace.visibleCardIds.length).toBeGreaterThan(1);
-    expect(result.trace.removedCardIds.length).toBe(1);
+    expect(result.trace.removedCardIds).toEqual([]);
     let feed = await store.readFeed("company-attention");
-    expect(feed.sweep.recollectionOffered).toBe(true);
-    expect(feed.work).toHaveLength(0);
-    expect(feed.cards.filter((card) => card.sweep?.hidden)).toHaveLength(1);
-    const recollection = await domain.requestSweepRecollection("company-attention");
-    expect(recollection.cardId).toBe("__feed__");
-    feed = await store.readFeed("company-attention");
     expect(feed.sweep.recollectionOffered).toBe(false);
+    expect(feed.work).toHaveLength(1);
+    expect(feed.work[0].intent).toBe("sweep_rejudge");
+    expect(feed.cards.filter((card) => card.sweep?.hidden)).toHaveLength(0);
+
+    const removedCardIds = ["demo-company-q3"];
+    const orderedCardIds = result.trace.visibleCardIds.filter((cardId) => !removedCardIds.includes(cardId));
+    await domain.recordSweepRejudgment("company-attention", result.trace.id, orderedCardIds, removedCardIds);
+    feed = await store.readFeed("company-attention");
+    expect(feed.sweep.recollectionOffered).toBe(true);
+    expect(feed.cards.filter((card) => card.sweep?.hidden).map((card) => card.id)).toEqual(removedCardIds);
     expect((await store.readEvents("company-attention")).map((event) => event.type)).toEqual(expect.arrayContaining([
       "sweep.feedback_recorded",
       "sweep.rejudged",
       "sweep.recollection_offered",
-      "sweep.recollection_requested",
     ]));
   });
 
-  test("keeps voice revisions pending until approval and preserves undo history", async () => {
+  test("collapses concurrent recollection requests into one queued item", async () => {
     const { store, domain } = await setup();
+    await domain.seedDemo();
+    const result = await domain.submitVoiceInstruction("company-attention", { kind: "sweep", feedId: "company-attention" }, "Search again after this correction.");
+    if (!("trace" in result)) throw new Error("Expected sweep trace");
+    await domain.recordSweepRejudgment("company-attention", result.trace.id, result.trace.visibleCardIds, []);
+    const [first, second] = await Promise.all([
+      domain.requestSweepRecollection("company-attention"),
+      domain.requestSweepRecollection("company-attention"),
+    ]);
+    expect(second.id).toBe(first.id);
+    expect((await store.readFeed("company-attention")).work.filter((work) => work.intent === "recollect_sources")).toHaveLength(1);
+  });
+
+  test("rejects a rejudgment write-back after a newer sweep batch becomes active", async () => {
+    const { domain } = await setup();
+    await domain.seedDemo();
+    await domain.recordSweepBatch("company-attention", ["run-1"]);
+    const result = await domain.submitVoiceInstruction("company-attention", { kind: "sweep", feedId: "company-attention" }, "Prefer more product evidence.");
+    if (!("trace" in result)) throw new Error("Expected sweep trace");
+    await domain.recordSweepBatch("company-attention", ["run-2"]);
+    await expect(domain.recordSweepRejudgment("company-attention", result.trace.id, result.trace.visibleCardIds, [])).rejects.toThrow("newer batch");
+  });
+
+  test("queues broader voice intent for Codex and preserves approval-gated revision history", async () => {
+    const { store, domain } = await setup();
+    const feedTarget = { kind: "feed" as const, feedId: "inbox" };
+    const originalPolicy = await store.readTargetContent(feedTarget);
+    const feedResult = await domain.submitVoiceInstruction("inbox", feedTarget, "Add Slack as a source and refresh this feed.");
+    expect(feedResult.kind).toBe("scoped_work");
+    expect(feedResult.work.cardId).toBe("__feed__");
+    expect(feedResult.work.target).toEqual(feedTarget);
+    expect(await store.readTargetContent(feedTarget)).toBe(originalPolicy);
+    expect((await store.readWorkspace("inbox")).proposals).toHaveLength(0);
+
     const target = { kind: "source_recipe" as const, feedId: "inbox", sourceId: "gmail-inbox" };
     const original = await store.readTargetContent(target);
     const result = await domain.submitVoiceInstruction("inbox", target, "Exclude newsletters unless they require a decision.");
-    expect(result.kind).toBe("revision_proposal");
-    if (result.kind !== "revision_proposal") throw new Error("Expected revision proposal");
+    expect(result.kind).toBe("scoped_work");
+    expect(result.work.target).toEqual(target);
     expect(await store.readTargetContent(target)).toBe(original);
-    const revision = await domain.applyRevisionProposal(result.proposal.id);
+    expect((await store.readWorkspace("inbox")).proposals).toHaveLength(0);
+
+    const proposal = await domain.proposeRevision("inbox", target, "Exclude newsletters unless they require a decision.", `${original}\n\n- Exclude newsletters unless they require a decision.`);
+    const revision = await domain.applyRevisionProposal(proposal.id);
     expect(await store.readTargetContent(target)).toContain("Exclude newsletters");
     await domain.revertWorkspaceRevision(revision.id);
     expect(await store.readTargetContent(target)).toBe(original);
@@ -302,9 +344,11 @@ describe("scoped persistent voice dock routing", () => {
 
     const globalPrompt = { kind: "global_prompt" as const, promptId: "judge.md" };
     const originalGlobal = await store.readTargetContent(globalPrompt);
-    const proposal = await domain.proposeRevision("inbox", globalPrompt, "Require a concrete decision consequence.");
+    const proposal = await domain.proposeRevision("inbox", globalPrompt, "Require a concrete decision consequence.", `${originalGlobal}\n\n- Require a concrete decision consequence.`);
     expect(await store.readTargetContent(globalPrompt)).toBe(originalGlobal);
-    await domain.applyRevisionProposal(proposal.id);
-    expect(await store.readTargetContent(globalPrompt)).toContain("concrete decision consequence");
+    expect((await store.readWorkspace("company-attention")).proposals.map((item) => item.id)).toContain(proposal.id);
+    expect((await domain.rejectRevisionProposal(proposal.id)).status).toBe("rejected");
+    expect((await store.readWorkspace("company-attention")).proposals.map((item) => item.id)).not.toContain(proposal.id);
+    expect(await store.readTargetContent(globalPrompt)).toBe(originalGlobal);
   });
 });

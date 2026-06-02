@@ -81,6 +81,7 @@ app.post("/api/voice/instructions", async (c) => mutation(c, async () => {
   return domain.submitVoiceInstruction(String(input.feedId ?? "inbox"), input.target, String(input.instruction ?? ""));
 }));
 app.post("/api/revision-proposals/:proposal/apply", async (c) => mutation(c, async () => domain.applyRevisionProposal(c.req.param("proposal"))));
+app.post("/api/revision-proposals/:proposal/reject", async (c) => mutation(c, async () => domain.rejectRevisionProposal(c.req.param("proposal"))));
 app.post("/api/revisions/:revision/revert", async (c) => mutation(c, async () => domain.revertWorkspaceRevision(c.req.param("revision"))));
 app.post("/api/feeds/:feed/recollect", async (c) => mutation(c, async () => domain.requestSweepRecollection(c.req.param("feed"))));
 app.post("/api/feeds/:feed/instructions", async (c) => mutation(c, async () => domain.queueFeedInstruction(c.req.param("feed"), String((await body(c)).instruction ?? ""))));

@@ -57,16 +57,6 @@ checkpoint only after the run record is durable. Return no candidate rather than
   };
 }
 
-const FEEDBACK_STOP_WORDS = new Set(["about", "again", "cards", "have", "more", "that", "these", "they", "this", "those", "want", "with", "would"]);
-
-function feedbackTokens(value: string): string[] {
-  return [...new Set(value.toLowerCase().match(/[a-z0-9]+/g)?.filter((word) => word.length > 3 && !FEEDBACK_STOP_WORDS.has(word)) ?? [])];
-}
-
-function cardSearchText(card: Card): string {
-  return JSON.stringify({ title: card.title, why: card.why, blocks: card.blocks }).toLowerCase();
-}
-
 function revisionLabel(target: VoiceTarget): string {
   if (target.kind === "feed") return "Feed policy";
   if (target.kind === "source_recipe") return `Source recipe · ${target.sourceId}`;
@@ -75,8 +65,19 @@ function revisionLabel(target: VoiceTarget): string {
   return "Attention policy";
 }
 
-function suggestedRevision(previous: string, instruction: string): string {
-  return `${previous.trimEnd()}\n\n## Proposed voice learning\n\n- ${instruction.trim()}\n`;
+function queuedWork(feedId: string, cardId: string, instruction: string, extra: Pick<WorkItem, "kind"> & Partial<Pick<WorkItem, "target" | "intent">>): WorkItem {
+  const now = isoNow();
+  return {
+    id: makeId("work"),
+    feedId,
+    cardId,
+    instruction: instruction.trim(),
+    status: "queued",
+    capabilityToken: makeToken(),
+    createdAt: now,
+    updatedAt: now,
+    ...extra,
+  };
 }
 
 export class AttentionDomain {
@@ -97,77 +98,115 @@ export class AttentionDomain {
   async submitVoiceInstruction(anchorFeedId: string, requested: VoiceTarget, instruction: string) {
     if (!instruction.trim()) throw new Error("Instruction is required.");
     const target = await this.store.validateVoiceTarget(requested);
-    await this.store.serialize(() => this.store.appendEvent({ feedId: anchorFeedId, type: "voice.instruction_submitted", detail: { target, instruction: instruction.trim() } }));
-    if (target.kind === "card") return { kind: "card_work" as const, target, work: await this.queueInstruction(target.feedId, target.cardId, instruction) };
-    if (target.kind === "sweep") return { kind: "sweep_feedback" as const, target, trace: await this.applySweepFeedback(target.feedId, instruction, target.runId) };
-    return { kind: "revision_proposal" as const, target, proposal: await this.proposeRevision(anchorFeedId, target, instruction) };
+    return this.store.serialize(async () => {
+      await this.store.appendEvent({ feedId: anchorFeedId, type: "voice.instruction_submitted", detail: { target, instruction: instruction.trim() } });
+      if (target.kind === "sweep") {
+        const feed = await this.store.readFeed(target.feedId);
+        const visibleCardIds = feed.cards
+          .filter((card) =>
+            (card.status === "to_review_new" || card.status === "to_review_updated") &&
+            card.readyForPass <= feed.config.currentPass &&
+            !card.sweep?.hidden
+          )
+          .map((card) => card.id);
+        const trace: SweepFeedbackTrace = {
+          id: makeId("sweep_feedback"),
+          feedId: target.feedId,
+          ...(target.batchId ? { batchId: target.batchId } : {}),
+          instruction: instruction.trim(),
+          visibleCardIds,
+          orderedCardIds: [],
+          removedCardIds: [],
+          createdAt: isoNow(),
+        };
+        const work = queuedWork(target.feedId, "__feed__", instruction, { kind: "scoped_instruction", target, intent: "sweep_rejudge" });
+        await this.store.writeSweepFeedback(trace);
+        await this.store.writeWork(work);
+        await this.store.writeSweepState(target.feedId, {
+          ...feed.sweep,
+          lastFeedbackId: trace.id,
+          recollectionOffered: false,
+          statusMessage: "Feedback queued for Codex",
+        });
+        await this.store.appendEvent({ feedId: target.feedId, workId: work.id, type: "sweep.feedback_recorded", detail: { feedbackId: trace.id, batchId: trace.batchId, instruction: trace.instruction } });
+        await this.store.appendEvent({ feedId: target.feedId, workId: work.id, type: "voice.intent_queued", detail: { target, intent: work.intent } });
+        return { kind: "scoped_work" as const, target, work, trace };
+      }
+
+      const feedId = "feedId" in target ? target.feedId : anchorFeedId;
+      const cardId = target.kind === "card" ? target.cardId : "__feed__";
+      const work = queuedWork(feedId, cardId, instruction, { kind: "scoped_instruction", target, intent: "voice_instruction" });
+      if (target.kind === "card") {
+        const card = await this.store.readCard(feedId, target.cardId);
+        if (card.status === "done") throw new Error("Done cards cannot be queued.");
+        card.status = "queued";
+        appendHistory(card, "user.scoped_instruction", instruction.trim());
+        await this.store.writeCard(card);
+      }
+      await this.store.writeWork(work);
+      await this.store.appendEvent({ feedId, cardId, workId: work.id, type: "voice.intent_queued", detail: { target, intent: work.intent } });
+      return { kind: "scoped_work" as const, target, work };
+    });
   }
 
-  async applySweepFeedback(feedId: string, instruction: string, runId?: string): Promise<SweepFeedbackTrace> {
-    if (!instruction.trim()) throw new Error("Sweep feedback is required.");
+  async recordSweepRejudgment(feedId: string, feedbackId: string, orderedCardIds: string[], removedCardIds: string[]): Promise<SweepFeedbackTrace> {
     return this.store.serialize(async () => {
-      const feed = await this.store.readFeed(feedId);
-      const visible = feed.cards.filter((card) =>
-        (card.status === "to_review_new" || card.status === "to_review_updated") &&
-        card.readyForPass <= feed.config.currentPass &&
-        !card.sweep?.hidden
-      );
-      const tokens = feedbackTokens(instruction);
-      const ordered = visible
-        .map((card, index) => ({
-          card,
-          index,
-          score: tokens.reduce((score, token) => score + (cardSearchText(card).includes(token) ? 1 : 0), 0),
-        }))
-        .sort((left, right) => right.score - left.score || (left.card.sweep?.rank ?? left.index) - (right.card.sweep?.rank ?? right.index));
-      const removeRequested = /\b(too|less|fewer|remove|hide|skip|exclude|only|instead|do not|don't|not interested)\b/i.test(instruction);
-      const removed = removeRequested && ordered.length > 1
-        ? ordered.slice(-Math.min(ordered.length - 1, Math.max(1, Math.floor(ordered.length / 3)))).map(({ card }) => card.id)
-        : [];
-      const trace: SweepFeedbackTrace = {
-        id: makeId("sweep_feedback"),
-        feedId,
-        ...(runId ? { runId } : {}),
-        instruction: instruction.trim(),
-        visibleCardIds: visible.map((card) => card.id),
-        orderedCardIds: ordered.map(({ card }) => card.id).filter((cardId) => !removed.includes(cardId)),
-        removedCardIds: removed,
-        createdAt: isoNow(),
-      };
-      for (const [rank, { card }] of ordered.entries()) {
-        card.sweep = { rank, hidden: removed.includes(card.id), feedbackId: trace.id };
+      const trace = await this.store.readSweepFeedback(feedId, feedbackId);
+      if (trace.rejudgedAt) throw new Error("Sweep feedback has already been rejudged.");
+      const sweep = await this.store.readSweepState(feedId);
+      if (trace.batchId && trace.batchId !== sweep.currentBatchId) throw new Error("Sweep feedback is stale because a newer batch is active.");
+      const combined = [...orderedCardIds, ...removedCardIds];
+      const expected = new Set(trace.visibleCardIds);
+      if (new Set(combined).size !== combined.length || combined.length !== expected.size || combined.some((cardId) => !expected.has(cardId))) {
+        throw new Error("Sweep rejudgment must account for each visible card exactly once.");
+      }
+      for (const [rank, cardId] of combined.entries()) {
+        const card = await this.store.readCard(feedId, cardId);
+        card.sweep = { rank, hidden: removedCardIds.includes(card.id), feedbackId: trace.id };
         appendHistory(card, card.sweep.hidden ? "sweep.feedback_hidden" : "sweep.feedback_ranked", trace.id);
         await this.store.writeCard(card);
       }
+      trace.orderedCardIds = orderedCardIds;
+      trace.removedCardIds = removedCardIds;
+      trace.rejudgedAt = isoNow();
       await this.store.writeSweepFeedback(trace);
       await this.store.writeSweepState(feedId, {
-        currentRunId: runId ?? feed.sweep.currentRunId,
+        ...sweep,
         lastFeedbackId: trace.id,
         recollectionOffered: true,
-        statusMessage: removed.length
-          ? `${removed.length} card${removed.length === 1 ? "" : "s"} removed`
+        statusMessage: removedCardIds.length
+          ? `${removedCardIds.length} card${removedCardIds.length === 1 ? "" : "s"} removed`
           : "Cards reranked",
       });
-      await this.store.appendEvent({ feedId, type: "sweep.feedback_recorded", detail: { feedbackId: trace.id, runId, instruction: trace.instruction } });
-      await this.store.appendEvent({ feedId, type: "sweep.rejudged", detail: { feedbackId: trace.id, orderedCardIds: trace.orderedCardIds, removedCardIds: removed } });
+      await this.store.appendEvent({ feedId, type: "sweep.rejudged", detail: { feedbackId: trace.id, orderedCardIds, removedCardIds } });
       await this.store.appendEvent({ feedId, type: "sweep.recollection_offered", detail: { feedbackId: trace.id } });
       return trace;
     });
   }
 
   async requestSweepRecollection(feedId: string): Promise<WorkItem> {
-    const sweep = await this.store.readSweepState(feedId);
-    if (!sweep.recollectionOffered) throw new Error("Search sources again is not currently offered.");
-    const work = await this.queueFeedInstruction(feedId, "Search the configured sources again, record a new collection run, and judge the refreshed sweep.");
-    await this.store.serialize(async () => {
+    return this.store.serialize(async () => {
+      const feed = await this.store.readFeed(feedId);
+      const existing = feed.work.find((work) => work.intent === "recollect_sources" && (work.status === "queued" || work.status === "working"));
+      if (existing) return existing;
+      const sweep = feed.sweep;
+      if (!sweep.recollectionOffered) throw new Error("Search sources again is not currently offered.");
+      const target: VoiceTarget = { kind: "sweep", feedId, ...(sweep.currentBatchId ? { batchId: sweep.currentBatchId } : {}) };
+      const work = queuedWork(feedId, "__feed__", "Search the configured sources again, record source runs, judge a new sweep batch, and write back the refreshed cards.", {
+        kind: "scoped_instruction",
+        target,
+        intent: "recollect_sources",
+      });
+      await this.store.writeWork(work);
       await this.store.writeSweepState(feedId, { ...sweep, recollectionOffered: false, statusMessage: "Source search queued" });
       await this.store.appendEvent({ feedId, workId: work.id, type: "sweep.recollection_requested", detail: { feedbackId: sweep.lastFeedbackId } });
+      return work;
     });
-    return work;
   }
 
-  async proposeRevision(anchorFeedId: string, requested: VoiceTarget, instruction: string): Promise<RevisionProposal> {
+  async proposeRevision(anchorFeedId: string, requested: VoiceTarget, instruction: string, next: string): Promise<RevisionProposal> {
     if (!instruction.trim()) throw new Error("Revision instruction is required.");
+    if (!next.trim()) throw new Error("Proposed revision content is required.");
     const target = await this.store.validateVoiceTarget(requested);
     if (target.kind === "card" || target.kind === "sweep") throw new Error("This target routes to work or sweep feedback, not a revision proposal.");
     return this.store.serialize(async () => {
@@ -179,7 +218,7 @@ export class AttentionDomain {
         label: revisionLabel(target),
         instruction: instruction.trim(),
         previous,
-        next: suggestedRevision(previous, instruction),
+        next: next.trim(),
         status: "proposed",
         createdAt: isoNow(),
       };
@@ -201,6 +240,18 @@ export class AttentionDomain {
       proposal.appliedRevisionId = revision.id;
       await this.store.writeRevisionProposal(proposal);
       return revision;
+    });
+  }
+
+  async rejectRevisionProposal(proposalId: string): Promise<RevisionProposal> {
+    return this.store.serialize(async () => {
+      const proposal = await this.store.readRevisionProposal(proposalId);
+      if (proposal.status !== "proposed") throw new Error("Revision proposal is no longer pending.");
+      proposal.status = "rejected";
+      proposal.rejectedAt = isoNow();
+      await this.store.writeRevisionProposal(proposal);
+      await this.store.appendEvent({ feedId: proposal.anchorFeedId, type: "revision.rejected", detail: { proposalId, target: proposal.target } });
+      return proposal;
     });
   }
 
@@ -251,18 +302,7 @@ export class AttentionDomain {
     return this.store.serialize(async () => {
       const card = await this.store.readCard(feedId, cardId);
       if (card.status === "done") throw new Error("Done cards cannot be queued.");
-      const now = isoNow();
-      const work: WorkItem = {
-        id: makeId("work"),
-        feedId,
-        cardId,
-        kind: "instruction",
-        instruction: instruction.trim(),
-        status: "queued",
-        capabilityToken: makeToken(),
-        createdAt: now,
-        updatedAt: now,
-      };
+      const work = queuedWork(feedId, cardId, instruction, { kind: "instruction" });
       card.status = "queued";
       appendHistory(card, "user.instruction", instruction.trim());
       await this.store.writeWork(work);
@@ -275,18 +315,7 @@ export class AttentionDomain {
   async queueFeedInstruction(feedId: string, instruction: string): Promise<WorkItem> {
     if (!instruction.trim()) throw new Error("Instruction is required.");
     return this.store.serialize(async () => {
-      const now = isoNow();
-      const work: WorkItem = {
-        id: makeId("work"),
-        feedId,
-        cardId: "__feed__",
-        kind: "instruction",
-        instruction: instruction.trim(),
-        status: "queued",
-        capabilityToken: makeToken(),
-        createdAt: now,
-        updatedAt: now,
-      };
+      const work = queuedWork(feedId, "__feed__", instruction, { kind: "instruction" });
       await this.store.writeWork(work);
       await this.store.appendEvent({ feedId, workId: work.id, type: "feed.instruction_queued", detail: { instruction: work.instruction } });
       return work;
@@ -662,9 +691,18 @@ export class AttentionDomain {
       for (const [index, snapshot] of snapshots.entries()) await this.store.writeRawSnapshot(feedId, runId, sourceId, `snapshot-${index + 1}`, snapshot);
       await this.store.writeRun(feedId, runId, { id: runId, feedId, sourceId, snapshots: snapshots.length, judgments, completedAt: isoNow() });
       await writeJson(this.store.feedPath(feedId, "checkpoints", `${sourceId}.json`), checkpoint);
-      await this.store.writeSweepState(feedId, { currentRunId: runId, lastFeedbackId: null, recollectionOffered: false, statusMessage: null });
       await this.store.appendEvent({ feedId, type: "source.run_completed", detail: { runId, sourceId, snapshots: snapshots.length, judgments: judgments.length } });
       return runId;
+    });
+  }
+
+  async recordSweepBatch(feedId: string, sourceRunIds: string[]): Promise<string> {
+    return this.store.serialize(async () => {
+      const batchId = makeId("batch");
+      await this.store.writeSweepBatch({ id: batchId, feedId, sourceRunIds, createdAt: isoNow() });
+      await this.store.writeSweepState(feedId, { currentBatchId: batchId, lastFeedbackId: null, recollectionOffered: false, statusMessage: null });
+      await this.store.appendEvent({ feedId, type: "sweep.batch_recorded", detail: { batchId, sourceRunIds } });
+      return batchId;
     });
   }
 

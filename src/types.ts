@@ -4,7 +4,7 @@ export type CardKind = "attention" | "feed_improvement";
 export type WorkStatus = "queued" | "working" | "completed" | "failed" | "stale" | "cancelled";
 export type VoiceTarget =
   | { kind: "card"; feedId: string; cardId: string }
-  | { kind: "sweep"; feedId: string; runId?: string }
+  | { kind: "sweep"; feedId: string; batchId?: string }
   | { kind: "feed"; feedId: string }
   | { kind: "source_recipe"; feedId: string; sourceId: string }
   | { kind: "prompt_layer"; feedId: string; promptId: string }
@@ -114,8 +114,10 @@ export interface WorkItem {
   id: string;
   feedId: FeedId;
   cardId: string;
-  kind: "instruction" | "execute_approved_action" | "default_cleanup" | "compound_learnings";
+  kind: "instruction" | "scoped_instruction" | "execute_approved_action" | "default_cleanup" | "compound_learnings";
   instruction: string;
+  target?: VoiceTarget;
+  intent?: "voice_instruction" | "sweep_rejudge" | "recollect_sources";
   status: WorkStatus;
   capabilityToken: string;
   approvalDigest?: string;
@@ -138,7 +140,7 @@ export interface FeedEvent {
 }
 
 export interface SweepState {
-  currentRunId: string | null;
+  currentBatchId: string | null;
   lastFeedbackId: string | null;
   recollectionOffered: boolean;
   statusMessage: string | null;
@@ -147,11 +149,19 @@ export interface SweepState {
 export interface SweepFeedbackTrace {
   id: string;
   feedId: FeedId;
-  runId?: string;
+  batchId?: string;
   instruction: string;
   visibleCardIds: string[];
   orderedCardIds: string[];
   removedCardIds: string[];
+  createdAt: string;
+  rejudgedAt?: string;
+}
+
+export interface SweepBatch {
+  id: string;
+  feedId: FeedId;
+  sourceRunIds: string[];
   createdAt: string;
 }
 
@@ -167,6 +177,7 @@ export interface RevisionProposal {
   createdAt: string;
   appliedAt?: string;
   appliedRevisionId?: string;
+  rejectedAt?: string;
 }
 
 export interface WorkspaceRevision {

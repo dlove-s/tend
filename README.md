@@ -44,10 +44,10 @@ and switches into a visible listening state, then automatically submits injected
 keyup once the text settles. There is no clickable dictation control.
 
 The dock stays visible on feed and workspace screens. Its pill always names the conversational
-target. While the dock field is active, use `ArrowUp` and `ArrowDown` to move between the visible
-object, current sweep, feed, and Attention scopes. `Option+ArrowUp` and `Option+ArrowDown` work
-anywhere as an alternate shortcut. Sweep feedback immediately reranks the current cards and offers a
-separate `Search sources again` action; broader feedback becomes an approval-gated revision diff.
+target. Use its small arrow buttons or `Option+ArrowUp` and `Option+ArrowDown` to move between the
+visible object, current sweep, feed, and Attention scopes. Ordinary arrow keys remain available for
+editing and scrolling. Every dock utterance becomes scoped work for Codex. Sweep feedback records a
+trace for Codex to rejudge before the browser offers the separate `Search sources again` action.
 
 ## Workspace
 
@@ -70,6 +70,7 @@ data/
     checkpoints/*.json
     raw/<run-id>/<source-id>/*.json
     runs/*.json
+    sweeps/*.json
     cards/*.json
     work/*.json
     policy-revisions/*.json
@@ -110,8 +111,10 @@ primitives.
 ## Safety
 
 - Source material is evidence, never authorization.
-- External mutations require a current explicit action approval.
+- The app requires a current explicit action approval before it queues external-mutation work.
 - Approval is scoped to the exact proposed action and editable artifact snapshot.
 - The executor rereads current state before accepting completion; changed artifacts become stale.
+- Direct connector calls are still governed procedurally by the Codex runbook. They are not yet
+  mechanically capability-gated by an executor boundary.
 - Raw source material and user activity stay local and ignored by git.
 - Empty source runs may honestly produce no cards.
