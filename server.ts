@@ -6,7 +6,8 @@ import { apiRoutes } from "./server/routes/api";
 import { assetRoutes } from "./server/routes/assets";
 import { createRealtimeHub } from "./server/routes/realtime";
 import { createFeedEventBridge } from "./server/realtime/feedEventBridge";
-import { createLocalRuntime, resolveArtifactsDir } from "./server/runtime";
+import { createLocalRuntime, resolveArtifactsDir, resolveRuntimeRoot } from "./server/runtime";
+import { DrainDispatcher } from "./server/dispatcher";
 
 declare const Bun: {
   serve(options: { port: number; hostname: string; idleTimeout: number; fetch: (...args: any[]) => any }): { stop(force?: boolean): void };
@@ -15,19 +16,20 @@ declare const Bun: {
 const root = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.ATTENTION_API_PORT ?? 4332);
 const clientDir = process.env.ATTENTION_CLIENT_DIR ?? path.join(root, "dist");
+const runtimeRoot = resolveRuntimeRoot(root);
 const artifactsDir = resolveArtifactsDir(root);
 const { dataDir, sqlite, store } = await createLocalRuntime();
 const domain = new AttentionDomain(store);
 const realtime = createRealtimeHub();
 const feedEventBridge = createFeedEventBridge(store, realtime.notify);
 await feedEventBridge.start();
+const drainDispatcher = new DrainDispatcher(store, { appRoot: root, runtimeRoot });
+if (process.env.ATTENTION_AUTODRAIN === "1") drainDispatcher.start();
 const app = new Hono();
 
 app.route("/", apiRoutes({ artifactsDir, dataDir, domain, notify: realtime.notify, port, root, sqlite, store }));
 app.route("/", realtime.routes());
 app.route("/", assetRoutes(clientDir));
-
-console.log(`attention api listening on http://127.0.0.1:${port}`);
 
 const server = Bun.serve({
   port,
@@ -36,7 +38,10 @@ const server = Bun.serve({
   fetch: app.fetch,
 });
 
+console.log(`attention api listening on http://127.0.0.1:${port}`);
+
 export function closeServer() {
+  drainDispatcher.stop();
   feedEventBridge.stop();
   server.stop(true);
 }

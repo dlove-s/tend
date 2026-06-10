@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "api": "bun server.ts",
+    "web": "bun web.ts",
     "dev": "vite --host 127.0.0.1",
     "start": "concurrently -k -n api,web -c brown,blue \"bun run api\" \"pnpm dev\"",
     "build": "tsc && vite build",
@@ -13,6 +14,7 @@
     "lint": "oxlint .",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
     "test": "bun test",
+    "live": "./bin/tend-live",
     "cli": "bun run cli.ts",
     "seed:demo": "bun run cli.ts demo:seed",
     "attention": "bun attention.ts",

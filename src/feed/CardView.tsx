@@ -123,7 +123,15 @@ function Block({ feedId, cardId, block, onChanged }: { feedId: string; cardId: s
     return (
       <section className="block block-evidence">
         {block.label && <h3>{block.label}</h3>}
-        <ul>{block.items?.map((item, index) => <li key={index}>{typeof item === "string" ? item : item.label}</li>)}</ul>
+        <ul>{block.items?.map((item, index) => (
+          <li key={index}>
+            {typeof item === "string"
+              ? <FormattedText text={item} />
+              : item.href
+                ? <a href={item.href} target="_blank" rel="noreferrer">{item.label}</a>
+                : <FormattedText text={item.label} />}
+          </li>
+        ))}</ul>
       </section>
     );
   }

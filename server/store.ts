@@ -5,6 +5,7 @@ import type {
   AppFeedback,
   Card,
   DictationCapability,
+  DrainState,
   FeedConfig,
   FeedEvent,
   FeedView,
@@ -51,6 +52,10 @@ import { FileWorkspaceFeedRepository, type WorkspaceFeedRepository } from "./rep
 export const GLOBAL_PROMPT_NAMES = ["judge.md", "compose-card.md", "execute-work.md", "distill-policy.md", "compound.md"] as const;
 export const FEED_PROMPT_NAMES = ["judge.md", "compose-card.md"] as const;
 const DEFAULT_FEED_IDS = ["inbox", "company-attention"];
+
+function defaultDrainState(): DrainState {
+  return { status: "idle", consecutiveFailures: 0 };
+}
 
 export class AttentionStore {
   readonly dataDir: string;
@@ -260,7 +265,7 @@ export class AttentionStore {
 
   async readFeed(feedId: string): Promise<FeedView> {
     const config = await this.readConfig(feedId);
-    const [thread, sourceRecords, policy, cards, runs, routineActions, work, sweep] = await Promise.all([
+    const [thread, sourceRecords, policy, cards, runs, routineActions, work, sweep, drain] = await Promise.all([
       readJson<ThreadBinding>(this.feedPath(feedId, "thread.json")),
       this.sources.list(feedId),
       this.textDocuments.read(`feeds/${feedId}/policy.md`),
@@ -269,6 +274,7 @@ export class AttentionStore {
       this.routineActionGroups.list(feedId),
       this.workItems.list(feedId),
       this.readSweepState(feedId),
+      this.readDrainState(feedId),
     ]);
     cards.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     runs.sort((a, b) => (a.completedAt ?? "").localeCompare(b.completedAt ?? "") || a.id.localeCompare(b.id));
@@ -284,8 +290,23 @@ export class AttentionStore {
       routineActions,
       work,
       sweep,
+      drain,
       readyNextPass: cards.filter((card) => card.status === "to_review_updated" && card.readyForPass > config.currentPass).length,
     };
+  }
+
+  async readWorkItems(feedId: string): Promise<WorkItem[]> {
+    return this.workItems.list(feedId);
+  }
+
+  async readDrainState(feedId: string): Promise<DrainState> {
+    const file = this.feedPath(feedId, "drain-state.json");
+    if (!existsSync(file)) return defaultDrainState();
+    return readJson<DrainState>(file);
+  }
+
+  async writeDrainState(feedId: string, state: DrainState): Promise<void> {
+    await writeJson(this.feedPath(feedId, "drain-state.json"), state);
   }
 
   async readSweepState(feedId: string): Promise<SweepState> {

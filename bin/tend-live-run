@@ -1,0 +1,43 @@
+#!/bin/zsh
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+API_PID=""
+WEB_PID=""
+
+stop_children() {
+  [[ -n "$API_PID" ]] && kill -TERM "$API_PID" 2>/dev/null || true
+  [[ -n "$WEB_PID" ]] && kill -TERM "$WEB_PID" 2>/dev/null || true
+}
+
+process_running() {
+  local pid="$1"
+  local state
+  state="$(ps -p "$pid" -o stat= 2>/dev/null | tr -d ' ')"
+  [[ -n "$state" && "$state" != *Z* ]]
+}
+
+trap 'stop_children; exit 143' INT TERM
+
+bun server.ts &
+API_PID="$!"
+bun web.ts &
+WEB_PID="$!"
+
+while true; do
+  if ! process_running "$API_PID"; then
+    echo "tend-live api child exited; stopping remaining child processes."
+    stop_children
+    wait "$WEB_PID" 2>/dev/null || true
+    exit 1
+  fi
+  if ! process_running "$WEB_PID"; then
+    echo "tend-live web child exited; stopping remaining child processes."
+    stop_children
+    wait "$API_PID" 2>/dev/null || true
+    exit 1
+  fi
+  sleep 1
+done

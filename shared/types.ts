@@ -42,6 +42,20 @@ export interface ThreadBinding {
     cadence: string | null;
     automationId: string | null;
   };
+  autoDrain?: {
+    enabled: boolean;
+    updatedAt: string;
+  };
+}
+
+export interface DrainState {
+  status: "idle" | "running";
+  lastDispatchedAt?: string;
+  lastCompletedAt?: string;
+  lastExitCode?: number;
+  lastError?: string;
+  consecutiveFailures?: number;
+  cooldownUntil?: string;
 }
 
 export interface DictationCapability {
@@ -71,7 +85,7 @@ export interface CardBlock {
   title?: string;
   text?: string;
   value?: string;
-  items?: Array<string | { label: string; detail?: string; checked?: boolean }>;
+  items?: Array<string | { label: string; detail?: string; checked?: boolean; href?: string }>;
   before?: string;
   after?: string;
   editable?: boolean;
@@ -303,6 +317,7 @@ export interface FeedView {
   routineActions: RoutineActionGroup[];
   work: WorkItem[];
   sweep: SweepState;
+  drain: DrainState;
   readyNextPass: number;
 }
 

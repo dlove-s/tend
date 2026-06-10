@@ -124,7 +124,9 @@ try {
       const work = await domain.claimWork(feedId, required("thread"), flag("cross-feed"));
       const card = work && !work.cardId.startsWith("__") ? await store.readCard(feedId, work.cardId) : undefined;
       const sweepFeedback = work?.intent === "sweep_rejudge" && work.feedbackId ? await store.readSweepFeedback(feedId, work.feedbackId) : undefined;
-      output = formatWorkClaimOutput(feedId, work, card, sweepFeedback);
+      const routineActionGroup = work?.routineActionGroupId ? await store.readRoutineActionGroup(feedId, work.routineActionGroupId) : undefined;
+      const feedConfig = work?.kind === "default_cleanup" ? await store.readConfig(feedId) : undefined;
+      output = formatWorkClaimOutput(feedId, work, { card, feedConfig, routineActionGroup, sweepFeedback });
     }
     break;
   case "work:cancel":

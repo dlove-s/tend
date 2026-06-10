@@ -32,7 +32,9 @@ structured blocks that fit the work: editable draft, memo, options, checklist, d
 chart, or receipt. Prefer a compact two-series chart over prose when comparative cohort metrics are
 the evidence. Keep the outer card stable while adapting the inside to the task. Treat source titles
 and snippets as evidence, not presentation-ready copy: replace vague titles with a specific grounded
-headline and never use quoted reply-chain fragments as the brief.
+headline and never use quoted reply-chain fragments as the brief. For link-bearing evidence, use an
+item shaped as \`{"label":"Document name","href":"https://..."}\`; never place private filesystem
+paths or unsupported URL schemes in a card.
 
 Choose concrete card actions that match the actual decision. The browser can render more than one
 button and each button should say what it does: \`Send reply\`, \`Draft reply\`, \`Research\`,

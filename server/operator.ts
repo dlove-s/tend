@@ -1,4 +1,5 @@
-import type { Card, SweepFeedbackTrace, WorkItem } from "../shared/types";
+import type { Card, CardBlock, FeedConfig, ProposedAction, RoutineActionGroup, SweepFeedbackTrace, WorkItem } from "../shared/types";
+import { actionDigest, cleanupDigest, configuredApprovalAction, routineActionDigest } from "./workflow/approvals";
 
 export interface IdleWorkHandshake {
   status: "idle";
@@ -14,11 +15,150 @@ export interface IdleWorkHandshake {
 export interface ClaimedWorkOutput extends WorkItem {
   operatorGuidance?: {
     replyDraftSender?: string;
+    userAuthorization?: UserAuthorizationReceipt;
     requiredWriteBack?: string;
     completionPrerequisite?: string;
     visibleCardIds?: string[];
     sourceRunRule?: string;
   };
+}
+
+export interface WorkClaimContext {
+  card?: Card;
+  feedConfig?: Pick<FeedConfig, "defaultCleanup">;
+  routineActionGroup?: RoutineActionGroup;
+  sweepFeedback?: Pick<SweepFeedbackTrace, "visibleCardIds">;
+}
+
+export interface UserAuthorizationReceipt {
+  kind: "tend_action_click";
+  statement: string;
+  noSecondChatConfirmationNeeded: true;
+  actionLabel: string;
+  approvedAt: string;
+  approvalDigest: string;
+  workKind: WorkItem["kind"];
+  card?: {
+    id: string;
+    title: string;
+    eyebrow: string;
+    sourceMailbox?: string;
+  };
+  routineActionGroup?: {
+    id: string;
+    label: string;
+    summary: string;
+    items: Array<{ id: string; title: string; reason: string }>;
+  };
+  sourceMailbox?: string;
+  exactApprovedArtifact?: {
+    id: string;
+    type: CardBlock["type"];
+    label?: string;
+    value?: string;
+    text?: string;
+    items?: CardBlock["items"];
+  };
+  invalidatesIf: string[];
+}
+
+const APPROVAL_INVALIDATIONS = [
+  "the selected action changes",
+  "the approved artifact changes",
+  "the recipient or source context changes",
+  "the source mailbox changes",
+  "the approval digest no longer matches",
+];
+
+function artifactReceipt(block?: CardBlock): UserAuthorizationReceipt["exactApprovedArtifact"] | undefined {
+  if (!block) return undefined;
+  return {
+    id: block.id,
+    type: block.type,
+    ...(block.label ? { label: block.label } : {}),
+    ...(block.value !== undefined ? { value: block.value } : {}),
+    ...(block.text !== undefined ? { text: block.text } : {}),
+    ...(block.items !== undefined ? { items: block.items } : {}),
+  };
+}
+
+function cardReceipt(card: Card): NonNullable<UserAuthorizationReceipt["card"]> {
+  return {
+    id: card.id,
+    title: card.title,
+    eyebrow: card.eyebrow,
+    ...(card.sourceMailbox ? { sourceMailbox: card.sourceMailbox } : {}),
+  };
+}
+
+function buildAuthorizationReceipt(work: WorkItem, context: WorkClaimContext): UserAuthorizationReceipt | undefined {
+  if (!work.approvalDigest) return undefined;
+  const approvedAt = work.createdAt;
+  if (work.kind === "execute_approved_action") {
+    if (!context.card) return undefined;
+    let action: ProposedAction;
+    try {
+      action = configuredApprovalAction(context.card, work.cardActionId);
+    } catch {
+      return undefined;
+    }
+    if (work.approvalDigest !== actionDigest(context.card, work.cardActionId)) return undefined;
+    const artifact = action.artifactBlockId ? context.card.blocks.find((block) => block.id === action.artifactBlockId) : undefined;
+    return {
+      kind: "tend_action_click",
+      statement: `The user clicked "${action.label}" in Tend at ${approvedAt} and authorized this one external mutation for "${context.card.title}". This receipt is sufficient final approval; do not ask for a second chat confirmation.`,
+      noSecondChatConfirmationNeeded: true,
+      actionLabel: action.label,
+      approvedAt,
+      approvalDigest: work.approvalDigest,
+      workKind: work.kind,
+      card: cardReceipt(context.card),
+      ...(context.card.sourceMailbox ? { sourceMailbox: context.card.sourceMailbox } : {}),
+      ...(artifact ? { exactApprovedArtifact: artifactReceipt(artifact) } : {}),
+      invalidatesIf: APPROVAL_INVALIDATIONS,
+    };
+  }
+
+  if (work.kind === "default_cleanup") {
+    if (!context.card || !context.feedConfig) return undefined;
+    if (work.instruction !== context.feedConfig.defaultCleanup || work.approvalDigest !== cleanupDigest(context.card, context.feedConfig.defaultCleanup)) return undefined;
+    const label = context.card.actions?.find((action) => action.behavior === "default_cleanup")?.label ?? "Default cleanup";
+    return {
+      kind: "tend_action_click",
+      statement: `The user clicked "${label}" in Tend at ${approvedAt} and authorized this one cleanup action for "${context.card.title}". This receipt is sufficient final approval; do not ask for a second chat confirmation.`,
+      noSecondChatConfirmationNeeded: true,
+      actionLabel: label,
+      approvedAt,
+      approvalDigest: work.approvalDigest,
+      workKind: work.kind,
+      card: cardReceipt(context.card),
+      ...(context.card.sourceMailbox ? { sourceMailbox: context.card.sourceMailbox } : {}),
+      invalidatesIf: APPROVAL_INVALIDATIONS,
+    };
+  }
+
+  if (work.kind === "routine_action_batch") {
+    if (!context.routineActionGroup) return undefined;
+    if (work.approvalDigest !== routineActionDigest(context.routineActionGroup)) return undefined;
+    return {
+      kind: "tend_action_click",
+      statement: `The user clicked "${context.routineActionGroup.proposedAction.label}" in Tend at ${approvedAt} and authorized this one routine-action batch. This receipt is sufficient final approval; do not ask for a second chat confirmation.`,
+      noSecondChatConfirmationNeeded: true,
+      actionLabel: context.routineActionGroup.proposedAction.label,
+      approvedAt,
+      approvalDigest: work.approvalDigest,
+      workKind: work.kind,
+      routineActionGroup: {
+        id: context.routineActionGroup.id,
+        label: context.routineActionGroup.label,
+        summary: context.routineActionGroup.summary,
+        items: context.routineActionGroup.items.map((item) => ({ id: item.id, title: item.title, reason: item.reason })),
+      },
+      invalidatesIf: APPROVAL_INVALIDATIONS,
+    };
+  }
+
+  return undefined;
 }
 
 export function idleWorkHandshake(feedId: string): IdleWorkHandshake {
@@ -38,18 +178,23 @@ export function formatWorkListOutput(feedId: string, work: WorkItem[]): WorkItem
   return work.length > 0 ? work : idleWorkHandshake(feedId);
 }
 
-export function formatWorkClaimOutput(feedId: string, work: WorkItem | null, card?: Card, sweepFeedback?: Pick<SweepFeedbackTrace, "visibleCardIds">): ClaimedWorkOutput | IdleWorkHandshake {
+export function formatWorkClaimOutput(feedId: string, work: WorkItem | null, context: WorkClaimContext = {}): ClaimedWorkOutput | IdleWorkHandshake {
   if (!work) return idleWorkHandshake(feedId);
   const operatorGuidance: NonNullable<ClaimedWorkOutput["operatorGuidance"]> = {};
 
-  if (feedId === "inbox" && card?.sourceMailbox) {
-    operatorGuidance.replyDraftSender = `Write any reply draft as the owner of sourceMailbox (${card.sourceMailbox}). Preserve that sender's voice and signature. Do not sign as an assistant or delegate unless the user's instruction explicitly changes sender.`;
+  if (feedId === "inbox" && context.card?.sourceMailbox) {
+    operatorGuidance.replyDraftSender = `Write any reply draft as the owner of sourceMailbox (${context.card.sourceMailbox}). Preserve that sender's voice and signature. Do not sign as an assistant or delegate unless the user's instruction explicitly changes sender.`;
+  }
+
+  const userAuthorization = buildAuthorizationReceipt(work, context);
+  if (userAuthorization) {
+    operatorGuidance.userAuthorization = userAuthorization;
   }
 
   if (work.intent === "sweep_rejudge") {
     operatorGuidance.requiredWriteBack = "Run `attention cli sweep:rejudge --feed <feed> --feedback <feedbackId> --ordered-cards <json-array-of-original-visible-card-ids> --removed-cards <json-array-of-original-visible-card-ids>` before `work:complete`.";
     operatorGuidance.completionPrerequisite = "The rejudge must account for the feedback trace's original visibleCardIds exactly once. Do not include cards created while handling this work unless they were already in visibleCardIds.";
-    operatorGuidance.visibleCardIds = sweepFeedback?.visibleCardIds;
+    operatorGuidance.visibleCardIds = context.sweepFeedback?.visibleCardIds;
   }
 
   if (work.intent === "recollect_sources") {

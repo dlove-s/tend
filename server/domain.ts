@@ -97,6 +97,16 @@ function hasText(value: unknown): value is string {
   return typeof value === "string" && Boolean(value.trim());
 }
 
+function isSafeCardHref(value: string): boolean {
+  if (value.startsWith("/api/artifacts/")) return true;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function blockDescription(block: Record<string, unknown>, index: number): string {
   const type = typeof block.type === "string" ? block.type : "unknown type";
   const id = typeof block.id === "string" && block.id.trim() ? ` "${block.id}"` : "";
@@ -122,6 +132,14 @@ function validateListBlock(block: Record<string, unknown>, index: number): void 
     }
     if (item.checked !== undefined && typeof item.checked !== "boolean") {
       throw new Error(`${blockDescription(block, index)} item ${itemIndex + 1} has a non-boolean \`checked\`.`);
+    }
+    if (item.href !== undefined) {
+      if (block.type !== "evidence") {
+        throw new Error(`${blockDescription(block, index)} item ${itemIndex + 1} may use \`href\` only in an evidence block.`);
+      }
+      if (!hasText(item.href) || !isSafeCardHref(item.href)) {
+        throw new Error(`${blockDescription(block, index)} item ${itemIndex + 1} needs an http(s) or local artifact \`href\`.`);
+      }
     }
   }
 }
