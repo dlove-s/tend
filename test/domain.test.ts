@@ -1109,6 +1109,68 @@ describe("approval, learning, and heartbeat safety", () => {
     expect((await store.readCard("inbox", card.id)).routineActionGroupId).toBeUndefined();
   });
 
+  test("supersedes older proposed routine groups and carries forward only fresh items", async () => {
+    const { store, domain } = await setup();
+    await domain.upsertCard("inbox", {
+      id: "routine-overlap",
+      title: "Overlapping routine notice.",
+      why: "The fresh sweep still considers this routine.",
+      blocks: [{ id: "brief", type: "memo", text: "Still obvious cleanup." }],
+    });
+    await domain.upsertCard("inbox", {
+      id: "routine-old-only",
+      title: "Old routine notice.",
+      why: "The fresh sweep did not carry this forward.",
+      blocks: [{ id: "brief", type: "memo", text: "No longer part of the cleanup group." }],
+    });
+    await domain.upsertRoutineActionGroup("inbox", {
+      id: "old-cleanup",
+      label: "Likely archive",
+      summary: "Older low-attention cleanup group.",
+      proposedAction: { label: "Archive all", instruction: "Archive each listed thread.", externalMutation: true },
+      items: [
+        { id: "overlap", cardId: "routine-overlap", title: "Overlapping routine notice", reason: "No reply needed." },
+        { id: "old-only", cardId: "routine-old-only", title: "Old routine notice", reason: "No reply needed." },
+      ],
+    });
+
+    const fresh = await domain.upsertRoutineActionGroup("inbox", {
+      id: "fresh-cleanup",
+      label: "Likely archive",
+      summary: "Fresh low-attention cleanup group.",
+      proposedAction: { label: "Archive all", instruction: "Archive each listed thread.", externalMutation: true },
+      items: [
+        { id: "overlap", cardId: "routine-overlap", title: "Overlapping routine notice", reason: "Still no reply needed." },
+      ],
+    });
+
+    expect(fresh.items.map((item) => item.id)).toEqual(["overlap"]);
+    expect((await store.readRoutineActionGroup("inbox", "old-cleanup")).status).toBe("stale");
+    expect((await store.readRoutineActionGroup("inbox", "old-cleanup")).error).toContain("Superseded by newer routine action group fresh-cleanup");
+    expect((await store.readCard("inbox", "routine-overlap")).routineActionGroupId).toBe("fresh-cleanup");
+    expect((await store.readCard("inbox", "routine-old-only")).routineActionGroupId).toBeUndefined();
+    expect((await store.readFeed("inbox")).routineActions.filter((group) => group.status === "proposed").map((group) => group.id)).toEqual(["fresh-cleanup"]);
+  });
+
+  test("recording a newer sweep batch stales leftover proposed routine groups", async () => {
+    const { store, domain } = await setup();
+    await domain.upsertRoutineActionGroup("inbox", {
+      id: "old-sweep-cleanup",
+      label: "Likely archive",
+      summary: "Cleanup group from a previous sweep.",
+      proposedAction: { label: "Archive all", instruction: "Archive each listed thread.", externalMutation: true },
+      items: [{ id: "setup-noise", cardId: "inbox-ready-to-collect", title: "Routine notice", reason: "No reply or decision is needed." }],
+    });
+
+    const batchId = await domain.recordSweepBatch("inbox", []);
+
+    expect(batchId).toMatch(/^batch_/);
+    expect((await store.readRoutineActionGroup("inbox", "old-sweep-cleanup")).status).toBe("stale");
+    expect((await store.readRoutineActionGroup("inbox", "old-sweep-cleanup")).error).toContain("Superseded by newer sweep batch");
+    expect((await store.readCard("inbox", "inbox-ready-to-collect")).routineActionGroupId).toBeUndefined();
+    expect((await store.readFeed("inbox")).routineActions.filter((group) => group.status === "proposed")).toHaveLength(0);
+  });
+
   test("restores a cancelled routine batch and rejects a batch whose visible snapshot changed after approval", async () => {
     const { store, domain } = await setup();
     await domain.bindFeed("inbox", "thread-inbox");

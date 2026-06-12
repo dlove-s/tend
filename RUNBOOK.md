@@ -203,6 +203,17 @@ prefer one compact two-series `chart` block:
 }
 ```
 
+For conservative batched cleanup, write one current routine group instead of several competing
+approval groups:
+
+```bash
+attention cli routine:upsert --feed <feed-id> --group '<json-object>'
+```
+
+Recording a newer sweep batch or a newer proposed routine group automatically marks older unapproved
+routine groups `stale` and releases any old-only cards back to review. Carry forward only still-valid
+items in the new group payload; do not hand-edit routine group JSON to hide stale approvals.
+
 During migration only, an explicitly selected provenance-bearing card from the old Attention
 Workbench can be converted into the new block format:
 

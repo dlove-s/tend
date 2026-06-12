@@ -269,6 +269,22 @@ export class AttentionDomain {
     }
   }
 
+  private async staleRoutineActionGroup(group: RoutineActionGroup, reason: string, supersededBy?: string): Promise<void> {
+    await this.releaseRoutineActionCards(group, false);
+    group.status = "stale";
+    group.error = reason;
+    group.updatedAt = isoNow();
+    await this.store.writeRoutineActionGroup(group);
+    await this.store.appendEvent({ feedId: group.feedId, type: "routine_action.stale", detail: { groupId: group.id, reason, supersededBy } });
+  }
+
+  private async staleProposedRoutineActionGroups(feedId: string, reason: string, exceptGroupId?: string): Promise<string[]> {
+    const feed = await this.store.readFeed(feedId);
+    const staleGroups = feed.routineActions.filter((group) => group.status === "proposed" && group.id !== exceptGroupId);
+    for (const group of staleGroups) await this.staleRoutineActionGroup(group, reason, exceptGroupId);
+    return staleGroups.map((group) => group.id);
+  }
+
   private async quarantineLegacyMutationWork(feed: FeedView, work: WorkItem): Promise<boolean> {
     if (
       work.approvalDigest ||
@@ -675,14 +691,22 @@ export class AttentionDomain {
       if (existing && (existing.status === "queued" || existing.status === "working" || existing.status === "completed")) {
         throw new Error("Routine action group cannot change after approval or completion.");
       }
+      const feed = await this.store.readFeed(feedId);
+      const proposedGroups = feed.routineActions.filter((group) => group.status === "proposed" && group.id !== input.id);
+      const proposedGroupIds = new Set(proposedGroups.map((group) => group.id));
       for (const item of input.items) {
         if (!item.id.trim() || !item.title.trim() || !item.reason.trim()) throw new Error("Routine action items need an id, title, and reason.");
         if (!item.cardId) continue;
         const card = await this.store.readCard(feedId, item.cardId);
         if (card.status !== "to_review_new" && card.status !== "to_review_updated") throw new Error(`Routine action card is no longer reviewable: ${card.id}`);
-        if (card.routineActionGroupId && card.routineActionGroupId !== input.id) throw new Error(`Routine action card already belongs to another group: ${card.id}`);
+        if (card.routineActionGroupId && card.routineActionGroupId !== input.id && !proposedGroupIds.has(card.routineActionGroupId)) {
+          throw new Error(`Routine action card already belongs to another approved or non-supersedable group: ${card.id}`);
+        }
       }
       if (existing) await this.releaseRoutineActionCards(existing, false);
+      for (const group of proposedGroups) {
+        await this.staleRoutineActionGroup(group, `Superseded by newer routine action group ${input.id.trim()}.`, input.id.trim());
+      }
       const now = isoNow();
       const group: RoutineActionGroup = {
         id: input.id.trim(),
@@ -1423,9 +1447,10 @@ export class AttentionDomain {
         if (triggerWork && (!run.completedAt || run.completedAt < triggerWork.createdAt)) throw new Error(`Source run predates this recollection work: ${runId}`);
       }
       const batchId = makeId("batch");
+      const supersededRoutineGroups = await this.staleProposedRoutineActionGroups(feedId, `Superseded by newer sweep batch ${batchId}.`);
       await this.store.writeSweepBatch({ id: batchId, feedId, sourceRunIds, ...(triggerWorkId ? { triggerWorkId } : {}), createdAt: isoNow() });
       await this.store.writeSweepState(feedId, { currentBatchId: batchId, lastFeedbackId: null, recollectionOffered: false, statusMessage: null });
-      await this.store.appendEvent({ feedId, workId: triggerWorkId, type: "sweep.batch_recorded", detail: { batchId, sourceRunIds, triggerWorkId } });
+      await this.store.appendEvent({ feedId, workId: triggerWorkId, type: "sweep.batch_recorded", detail: { batchId, sourceRunIds, triggerWorkId, supersededRoutineGroups } });
       return batchId;
     });
   }
