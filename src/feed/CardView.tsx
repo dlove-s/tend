@@ -33,25 +33,25 @@ function readableHistory(card: Card): Array<{ at: string; label: string; detail:
       return [{ at: entry.at, label: "Back for review", detail: "You moved this card back into the sweep." }];
     }
     if (entry.type === "codex.completed") {
-      return [{ at: entry.at, label: "Codex did", detail: entry.detail ?? "Finished the requested work." }];
+      return [{ at: entry.at, label: "Claude did", detail: entry.detail ?? "Finished the requested work." }];
     }
     if (entry.type === "codex.stale_approval") {
       return [{ at: entry.at, label: "Needs review", detail: "The previous approval expired because the card changed. Review the current next step.", tone: "attention" as const }];
     }
     if (entry.type === "codex.failed") {
-      return [{ at: entry.at, label: "Codex could not finish", detail: entry.detail ?? "The attempted work needs another look.", tone: "attention" as const }];
+      return [{ at: entry.at, label: "Claude could not finish", detail: entry.detail ?? "The attempted work needs another look.", tone: "attention" as const }];
     }
     if (entry.type === "codex.approved_action_blocked") {
-      return [{ at: entry.at, label: "Still approved", detail: entry.detail ?? "Codex needs to retry the approved action.", tone: "attention" as const }];
+      return [{ at: entry.at, label: "Still approved", detail: entry.detail ?? "Claude needs to retry the approved action.", tone: "attention" as const }];
     }
     if (entry.type === "codex.approved_action_retry_queued") {
-      return [{ at: entry.at, label: "Codex retrying", detail: "Your existing approval is still bound to the unchanged artifact." }];
+      return [{ at: entry.at, label: "Claude retrying", detail: "Your existing approval is still bound to the unchanged artifact." }];
     }
     if (entry.type === "codex.approved_action_reconciled") {
-      return [{ at: entry.at, label: "Codex did", detail: entry.detail ?? "Recorded the approved action as completed after the connector succeeded." }];
+      return [{ at: entry.at, label: "Claude did", detail: entry.detail ?? "Recorded the approved action as completed after the connector succeeded." }];
     }
     if (entry.type === "routine_action.completed") {
-      return [{ at: entry.at, label: "Codex did", detail: "Completed the approved routine cleanup." }];
+      return [{ at: entry.at, label: "Claude did", detail: "Completed the approved routine cleanup." }];
     }
     return [];
   });
@@ -236,7 +236,7 @@ function QueuedNoteEditor({ work, onChanged }: { work: WorkItemView; onChanged: 
     <section className="queued-note">
       <span className="action-label">Queued note</span>
       <textarea aria-label="Queued note" value={value} onChange={(event) => setValue(event.target.value)} onBlur={() => void save()} rows={Math.max(2, value.split("\n").length)} />
-      <small>{saving ? "Saving..." : "Edit before Codex claims it."}</small>
+      <small>{saving ? "Saving..." : "Edit before Claude claims it."}</small>
     </section>
   );
 }
@@ -284,7 +284,7 @@ export function CardView({
 }) {
   const actions = visibleCardActions(card);
   const nextThing = card.proposedAction?.label === "Decide disposition"
-    ? "Archive, or tell Codex what to do"
+    ? "Archive, or tell Claude what to do"
     : card.proposedAction?.label ?? actions.find((action) => action.variant === "primary")?.label ?? actions[0]?.label;
   return (
     <article className={`attention-card ${card.contextInfluence ? "has-context-influence" : ""} ${active ? "is-active" : ""}`} data-card-id={card.id} onClick={onActivate} onMouseEnter={onActivate}>
@@ -307,7 +307,7 @@ export function CardView({
         <footer className="card-action">
           <div>
             <span className="action-label">Already approved</span>
-            <b>Waiting for Codex to retry</b>
+            <b>Waiting for Claude to retry</b>
             {card.sourceMailbox && <small className="reply-mailbox">Reply from {card.sourceMailbox}</small>}
           </div>
         </footer>
@@ -338,8 +338,8 @@ export function CardView({
       {(card.status === "queued" || card.status === "done") && (
         <footer className="card-action">
           <div>
-            <span className="action-label">{card.status === "queued" ? `Queued for ${queuedFor ?? "Codex"}` : "Done"}</span>
-            <b>{card.status === "queued" ? `Waiting for ${queuedFor ?? "the feed thread"}` : "Completed"}</b>
+            <span className="action-label">{card.status === "queued" ? `Queued for ${queuedFor ?? "Claude"}` : "Done"}</span>
+            <b>{card.status === "queued" ? `Waiting for ${queuedFor ?? "the Claude lane"}` : "Completed"}</b>
           </div>
           <div className="action-buttons">
             <button className="button ghost" onClick={(event) => { event.stopPropagation(); onReturnToReview(); }}>

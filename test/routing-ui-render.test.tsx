@@ -182,5 +182,5 @@ test("queued card footer attributes the lane it waits on", () => {
   expect(claudeHtml).toContain("Queued for Claude");
   expect(claudeHtml).toContain("Waiting for Claude");
   const legacyHtml = renderToStaticMarkup(<CardView {...base} />);
-  expect(legacyHtml).toContain("Queued for Codex");
+  expect(legacyHtml).toContain("Queued for Claude");
 });

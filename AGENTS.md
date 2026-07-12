@@ -1,5 +1,9 @@
 # Tend Feed Thread Protocol
 
+> **Note:** Claude is now Tend's default drain lane (the front door). This Codex feed-thread protocol
+> remains fully supported as the documented alternative lane. For the default Claude lane, see
+> [`docs/CLAUDE_THREAD.md`](./docs/CLAUDE_THREAD.md).
+
 - This protocol governs Codex feed threads. A Claude Code session operating the Claude lane
   follows `docs/CLAUDE_THREAD.md` instead. Work is lane-scoped: you will not be offered items
   assigned to the Claude lane; do not attempt to claim them.

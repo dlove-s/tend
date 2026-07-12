@@ -11,6 +11,7 @@ export function helpCommand(): void {
       "tend logs",
       "tend status",
       "tend doctor",
+      "tend setup claude [--feed <id>]",
       "tend setup codex [--feed <id> | --chronicle]",
       "tend backup export [path]",
       "tend backup import <path>",

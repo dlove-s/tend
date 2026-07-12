@@ -4,7 +4,7 @@ import { runTendCli } from "../server/cli";
 import { CLI_COMMANDS, INTERNAL_CLI_COMMANDS, cliCommandName } from "../server/cli/contract";
 import { MissingFlagError, formatCliError } from "../server/cli/errors";
 import { assertCliRuntimeMatchesLive } from "../server/cli/runtimeGuard";
-import { setupChroniclePrompt, setupCodexPrompt } from "../server/cli/setup";
+import { setupChroniclePrompt, setupClaudePrompt, setupCodexPrompt } from "../server/cli/setup";
 
 describe("CLI contract", () => {
   test("keeps public help focused on the v0 agent surface", () => {
@@ -70,6 +70,25 @@ describe("CLI contract", () => {
     expect(prompt).toContain("Do setup sequentially: bind first and wait for it to finish, then propose/install the heartbeat.");
     expect(prompt).toContain("ATTENTION_HOME='/tmp/tend home' '/tmp/tend install/tend' cli feed:bind --feed model-watch --thread <current-codex-thread-id>");
     expect(prompt).toContain('says "go deal with the feed"');
+  });
+
+  test("prints a self-contained Claude setup prompt for binary installs", () => {
+    const prompt = setupClaudePrompt({
+      binaryPath: "/tmp/tend install/tend",
+      skillPath: "/tmp/tend install/docs/SKILL.md",
+      attentionHome: "/tmp/tend home",
+      feedId: "model-watch",
+    });
+
+    expect(prompt).toContain("Tend is Claude-native.");
+    expect(prompt).toContain('becomes the Claude lane that drains "model-watch"');
+    expect(prompt).toContain("Local Tend entry point: /tmp/tend install/tend");
+    expect(prompt).toContain("Claude lane protocol: /tmp/tend install/docs/CLAUDE_THREAD.md");
+    expect(prompt).toContain("Use the local Tend CLI contract, not a hosted Tend or MCP setup.");
+    expect(prompt).toContain("ATTENTION_HOME='/tmp/tend home' '/tmp/tend install/tend' cli feed:bind --feed model-watch --agent claude");
+    expect(prompt).toContain("ATTENTION_HOME='/tmp/tend home' '/tmp/tend install/tend' cli feed:drain-agent --feed model-watch --agent claude");
+    expect(prompt).toContain("/tend skill");
+    expect(prompt).toContain('say "go deal with the feed"');
   });
 
   test("prints a self-contained Chronicle Pulse setup prompt", () => {

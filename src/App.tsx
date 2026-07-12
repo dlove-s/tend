@@ -317,7 +317,7 @@ export default function App({ feedId, screen, workspaceTab }: { feedId: string; 
           setUndoQueuedWork(queued);
           window.setTimeout(() => setUndoQueuedWork((current) => current?.workId === queued.workId ? null : current), 5_000);
         }
-        showToast(`${action.label} queued for Codex`);
+        showToast(`${action.label} queued for ${agentLabel(effectiveWorkLane({}, feed.thread))}`);
         await refresh();
       } catch (error) {
         showToast(error instanceof Error ? error.message : String(error));
@@ -332,7 +332,7 @@ export default function App({ feedId, screen, workspaceTab }: { feedId: string; 
         const queued = { feedId: feed.config.id, workId: work.id };
         setUndoQueuedWork(queued);
         window.setTimeout(() => setUndoQueuedWork((current) => current?.workId === queued.workId ? null : current), 5_000);
-        showToast(`${group.proposedAction.label} queued for Codex`);
+        showToast(`${group.proposedAction.label} queued for ${agentLabel(effectiveWorkLane({}, feed.thread))}`);
         await refresh();
       } catch (error) {
         showToast(error instanceof Error ? error.message : String(error));
@@ -378,7 +378,10 @@ export default function App({ feedId, screen, workspaceTab }: { feedId: string; 
     return queued ? workAgentLabel(queued) : undefined;
   };
   const queuedLanes = new Set(feed.work.filter((work) => work.status === "queued").map(workAgent));
-  const queuedTabLabel = queuedLanes.size > 1 ? "Queued" : queuedLanes.has("claude") ? "Queued for Claude" : "Queued for Codex";
+  const queuedTabLabel = queuedLanes.size > 1 ? "Queued"
+    : queuedLanes.has("claude") ? "Queued for Claude"
+    : queuedLanes.has("codex") ? "Queued for Codex"
+    : `Queued for ${agentLabel(effectiveWorkLane({}, feed.thread))}`;
 
   if (screen === "workspace") return withRealtime(
     <>
@@ -480,7 +483,7 @@ export default function App({ feedId, screen, workspaceTab }: { feedId: string; 
             )}
           </article>
         ))}
-        {!cards.length && !routineActions.length && !feedWork.length && <div className="empty"><h2>Nothing here right now.</h2><p>{tab === "review" ? "A quiet feed is allowed. Wake the feed thread when you want Codex to collect or drain pending work." : "Move back to To review when you are ready for the next pass."}</p></div>}
+        {!cards.length && !routineActions.length && !feedWork.length && <div className="empty"><h2>Nothing here right now.</h2><p>{tab === "review" ? "A quiet feed is allowed. Wake this feed's agent when you want it to collect or drain pending work." : "Move back to To review when you are ready for the next pass."}</p></div>}
         {(feed.readyNextPass > 0 || compoundProposals.length > 0) && <section className={`end-cap ${feed.readyNextPass ? "" : "actions-only"}`}>
           {feed.readyNextPass > 0 && <div>
             <span>End of this pass</span>

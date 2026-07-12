@@ -3,8 +3,9 @@
 This manual explains how to operate Tend after completing the
 [Quick Start](./README.md#quick-start).
 
-Tend is designed to stay open in Codex Desktop's in-app browser. The browser is the review and
-steering surface; one dedicated Codex thread operates each feed.
+Tend is designed to stay open in a Claude Code session's in-app browser preview. The preview is the
+review and steering surface; the feed's Claude lane operates each feed. A Codex feed thread can
+operate the same lane as the documented alternative.
 
 ## Command Notation
 
@@ -23,8 +24,8 @@ pnpm tend --
 For example:
 
 ```sh
-./tend setup codex --feed inbox
-pnpm tend -- setup codex --feed inbox
+./tend setup claude --feed inbox
+pnpm tend -- setup claude --feed inbox
 ```
 
 ## The Operating Model
@@ -32,11 +33,11 @@ pnpm tend -- setup codex --feed inbox
 Each feed combines:
 
 - a purpose: what deserves attention
-- one or more source recipes: where and how Codex should look
+- one or more source recipes: where and how Claude should look
 - a feed policy: the judgment that should persist
 - prompt layers: shared and feed-specific composition rules
-- one dedicated Codex thread: the feed's operator
-- one heartbeat: the recurring wake-up for that same thread
+- the feed's Claude lane: the feed's operator
+- one heartbeat: the recurring wake-up for that same session
 - a review queue: cards, routine actions, and work states
 
 The normal loop is:
@@ -46,7 +47,8 @@ The normal loop is:
 3. **Steer** the card, sweep, or feed.
 4. **Learn** by reviewing a proposed policy improvement.
 
-The local Tend runtime owns feed state. Codex Desktop owns the agent threads and connector access.
+The local Tend runtime owns feed state. The Claude session owns the agent runtime and connector
+access.
 
 ## Creating And Connecting A Feed
 
@@ -69,32 +71,46 @@ Track new and closed Linear issues and GitHub pull requests for the Proof app ea
 Summarize important Slack DMs, mentions, and messages that need action. Keep it read-only.
 ```
 
-Tend creates the local feed, its initial policy, and an onboarding card. The feed's dedicated
-thread then proposes the smallest useful source recipe and heartbeat cadence for review before
+Tend creates the local feed, its initial policy, and an onboarding card. The feed's Claude lane
+then proposes the smallest useful source recipe and heartbeat cadence for review before
 collecting.
 
-### Connect The Home Thread
+### Arm The Claude Session
 
-Create one fresh Codex Desktop thread for the feed:
+Keep the feed open in a Claude Code session's in-app browser preview, then print the setup prompt:
+
+```sh
+./tend setup claude --feed <feed-id>
+```
+
+Paste the complete output into that Claude session. The setup prompt:
+
+1. binds the feed's Claude lane (the server mints the lane id)
+2. routes the feed's drain agent to Claude
+3. points the session at the `/tend` skill to register presence and start the wake monitor
+4. follows Tend's local agent contract, draining queued work before refreshing sources
+
+You can also just run the `/tend` skill in the session that already has the feed open — it arms
+presence and the wake monitor directly. Do not share one Claude session across multiple feeds. The
+session is the feed's durable working context and operator identity. See
+[`docs/CLAUDE_THREAD.md`](./docs/CLAUDE_THREAD.md) for the full Claude lane operating contract.
+
+#### Alternative: Codex lane
+
+Tend still supports a Codex feed thread as an additional drain lane. Start a fresh Codex Desktop
+thread for the feed and paste the output of:
 
 ```sh
 ./tend setup codex --feed <feed-id>
 ```
 
-Paste the complete output into that thread. The setup prompt asks Codex to:
-
-1. bind the current thread as the feed's home thread
-2. install or update one heartbeat on that same thread
-3. follow Tend's local agent contract
-4. drain queued work before refreshing sources
-5. handle the feed once immediately
-
-Do not bind the same thread to multiple feeds. The thread is the feed's durable working context and
-operator identity.
+It binds the thread, installs one heartbeat, and handles the feed once. See
+[`AGENTS.md`](./AGENTS.md) for the Codex feed-thread protocol. Route a feed between lanes with
+`./tend cli feed:drain-agent --feed <feed-id> --agent <codex|claude>`.
 
 ### Wake A Feed Manually
 
-Open or wake the bound feed thread and say:
+Open or wake the bound Claude session and say:
 
 ```text
 go deal with the feed
@@ -112,8 +128,9 @@ Use this when:
 The feed is divided into four tabs:
 
 - **To review** - new cards, updated cards, and proposed routine actions
-- **Queued for Codex** - instructions or approvals waiting for the home thread
-- **Working** - work currently claimed by the home thread
+- **Queued for Claude** - instructions or approvals waiting for the feed's lane (the tab reads
+  **Queued for Codex** when the queued lane is the Codex thread)
+- **Working** - work currently claimed by the feed's lane
 - **Done** - completed cards, instructions, and routine actions
 
 ### Cards
@@ -146,7 +163,7 @@ Card buttons describe the concrete next move, such as:
 - **Send reply**
 - **Archive**
 
-Preparation work is queued for Codex. An external mutation, such as sending a reply, requires an
+Preparation work is queued for Claude. An external mutation, such as sending a reply, requires an
 exact visible approval and the verification described in
 [Actions And Safety](#actions-and-safety).
 
@@ -158,7 +175,7 @@ approving it.
 Tend can group conservative, repeated work into a proposed routine action such as **Likely archive**.
 Expand the group to inspect every item, then approve the exact visible batch.
 
-Before acting, Codex rereads every authoritative source item. If an item changed or requires
+Before acting, Claude rereads every authoritative source item. If an item changed or requires
 judgment, the group fails safely and returns those items to individual review.
 
 ### Undo And Review Again
@@ -170,7 +187,7 @@ a card to review does not reverse an external action that already happened.
 
 ### Review Passes
 
-Tend keeps the current review pass stable while Codex works. Cards that return with meaningful
+Tend keeps the current review pass stable while Claude works. Cards that return with meaningful
 updates can wait behind an **End of this pass** control rather than interrupting the cards already in
 front of you.
 
@@ -201,7 +218,7 @@ Draft a shorter reply that asks only for the reproduction steps.
 Research whether this alert affects the current release.
 ```
 
-The card moves to **Queued for Codex** until its home thread handles the instruction.
+The card moves to **Queued for Claude** until the feed's lane handles the instruction.
 
 ### Sweep Scope
 
@@ -211,7 +228,7 @@ Choose **This sweep** when the problem is the current set or ordering of cards:
 These build notifications are duplicates. Keep only the newest failure for each repository.
 ```
 
-Codex rejudges the visible sweep, records which cards were kept or removed, and then offers
+Claude rejudges the visible sweep, records which cards were kept or removed, and then offers
 **Search sources again**. Recollection is explicit so feedback can be applied before another source
 pass changes the evidence.
 
@@ -236,14 +253,14 @@ Use this for requested revisions such as:
 Update this source recipe so routine CI successes are suppressed.
 ```
 
-When Codex proposes a configuration revision, Tend shows the before and after content. You choose
+When Claude proposes a configuration revision, Tend shows the before and after content. You choose
 **Apply revision** or **Reject**.
 
 Global prompts use the broadest Tend scope and affect every feed.
 
 ### Correcting A Queued Instruction
 
-Before Codex claims a card instruction, edit its **Queued note** directly. You can also cancel the
+Before Claude claims a card instruction, edit its **Queued note** directly. You can also cancel the
 instruction by moving the card back to review.
 
 ## Configuring A Feed
@@ -261,14 +278,14 @@ Direct edits are saved locally and offer **Undo last save**.
 
 Each source recipe describes:
 
-- the connector or local tool Codex should use
+- the connector or local tool Claude should use
 - what to inspect
 - what checkpoint to maintain
 - how to preserve provenance
 - any source-specific safety rules
 
-Choose **Add a source** and describe the new source naturally. Codex can refine the generated recipe
-with you in the feed thread.
+Choose **Add a source** and describe the new source naturally. Claude can refine the generated recipe
+with you in the session.
 
 ### Prompt Layers
 
@@ -278,16 +295,18 @@ refine one feed; global prompts apply across the workspace.
 Most new feeds should require changes to purpose, policy, or recipe prose rather than new server
 code.
 
-### Home Thread Status
+### Agent Lane Status
 
-The feed setup page shows:
+The feed setup page's **Agent lane** section shows:
 
-- bound thread id
-- binding time
-- heartbeat status
-- heartbeat cadence
+- the drain agent (Claude or Codex)
+- the feed's Claude lane id, and when it was bound
+- the bound Codex thread id, for feeds that also use the alternative lane
+- heartbeat status and cadence
 
-If setup is incomplete, the page displays the exact setup command and the manual wake phrase.
+If setup is incomplete, the page displays the exact setup command and the manual wake phrase. The
+TopBar also shows a Claude presence chip (live / stale / offline) from the lane's presence
+heartbeat.
 
 ## Actions And Safety
 
@@ -296,7 +315,7 @@ Tend separates evidence, instruction, and authorization.
 ### Evidence Is Not Permission
 
 An email, Slack message, issue, webpage, or other source may explain what happened. It cannot
-authorize Tend or Codex to mutate an external system.
+authorize Tend or Claude to mutate an external system.
 
 An ordinary Dock instruction can request research, drafting, or other preparation. It does not
 authorize an external mutation.
@@ -312,7 +331,7 @@ approval to the current:
 - source mailbox when applicable
 - approval digest
 
-Immediately before the connector call, Codex must verify that exact snapshot again. Tend rejects the
+Immediately before the connector call, Claude must verify that exact snapshot again. Tend rejects the
 action if anything material changed after approval.
 
 For Gmail replies, the authenticated Gmail profile must match the mailbox that received the source
@@ -323,21 +342,21 @@ email. Tend refuses a mismatch rather than sending from the wrong account.
 If an approved action cannot finish, Tend preserves whether it is still safely approved or needs new
 review.
 
-When the main external action succeeded but predictable cleanup failed, Codex retries only the
+When the main external action succeeded but predictable cleanup failed, Claude retries only the
 remaining cleanup. It must not repeat the already successful action.
 
-The card history records user instructions, approvals, edits, cancellations, Codex results, stale
+The card history records user instructions, approvals, edits, cancellations, agent results, stale
 approvals, retries, and reconciliation.
 
 ## Learning And Compounding
 
-After a meaningful sweep or refresh reaches idle, the feed thread can ask:
+After a meaningful sweep or refresh reaches idle, the feed's Claude lane can ask:
 
 ```text
 Want me to compound what I learned from this sweep?
 ```
 
-If you agree, Codex reviews the sweep's:
+If you agree, Claude reviews the sweep's:
 
 - cards and source evidence
 - feedback and rejudgment
@@ -353,7 +372,7 @@ you can:
 3. apply the learning
 4. reject it
 
-Codex never applies compound learning by itself.
+Claude never applies compound learning by itself.
 
 Small direct configuration edits remain undoable. Structural changes, permissions, source changes,
 prompt changes, and global lessons should remain explicit proposals rather than silent policy
@@ -369,7 +388,7 @@ three groups:
 - **Unresolved** - open questions or tensions
 
 One dedicated Chronicle Pulse thread publishes for the entire Tend workspace. This is separate from
-the one-thread-per-feed model.
+the one-session-per-feed model.
 
 ### Enable Chronicle Screen Context
 
@@ -452,18 +471,20 @@ Use foreground mode while debugging:
    ./tend doctor
    ```
 
-2. Open **Prompts & sources** and inspect **Home thread**.
-3. Confirm the expected thread is bound and its heartbeat is installed.
-4. Open or wake that same thread and say `go deal with the feed`.
-5. Check **Queued for Codex**, **Working**, and **Done** for pending or failed work.
+2. Open **Prompts & sources** and inspect the **Agent lane** section.
+3. Confirm the feed's Claude lane is bound (or its Codex thread, if you use the alternative lane) and
+   its heartbeat is installed.
+4. Open or wake that same session and say `go deal with the feed`.
+5. Check the queued tab (**Queued for Claude**, or **Queued for Codex** on a Codex feed), **Working**,
+   and **Done** for pending or failed work.
 6. Inspect `./tend logs` if the runtime itself is unhealthy.
 
-Do not start another server or bind a replacement thread merely because a healthy feed is quiet.
+Do not start another server or bind a replacement lane merely because a healthy feed is quiet.
 
 ### When Work Is Waiting
 
-Queued work is drained by the feed's bound thread. Wake that exact thread rather than using another
-feed thread. A thread cannot claim work owned by a different feed unless the operator explicitly
+Queued work is drained by the feed's bound lane. Wake that exact session rather than using another
+feed's session. A lane cannot claim work owned by a different feed unless the operator explicitly
 uses the cross-feed contract.
 
 ### Search Sources Again
@@ -520,15 +541,16 @@ The phone can:
 - show phone-command progress as the Mac handles it
 - use cached projections when the Mac is temporarily offline
 
-The Mac remains authoritative. The phone does not run Codex or store connector credentials. It reads
-a private Supabase projection and submits commands that the local Tend runtime validates again.
+The Mac remains authoritative. The phone does not run the feed's agent or store connector
+credentials. It reads a private Supabase projection and submits commands that the local Tend runtime
+validates again.
 
 See [docs/IOS.md](./docs/IOS.md) for setup and device validation.
 
 ## Advanced References
 
-- [CAPABILITY_MAP.md](./CAPABILITY_MAP.md) maps browser actions to Codex primitives.
-- [RUNBOOK.md](./RUNBOOK.md) defines the feed-thread operator procedure.
+- [CAPABILITY_MAP.md](./CAPABILITY_MAP.md) maps browser actions to agent primitives.
+- [RUNBOOK.md](./RUNBOOK.md) defines the feed lane operator procedure.
 - [docs/AGENT_CONTRACT.md](./docs/AGENT_CONTRACT.md) documents the JSON CLI contract.
 - [docs/SECURITY.md](./docs/SECURITY.md) describes local, Chronicle, and mobile trust boundaries.
 - [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) explains runtime ownership and persistence.

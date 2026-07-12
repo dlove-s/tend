@@ -32,10 +32,10 @@ export function InspectorPanel({ value, state, onClose, onChanged }: { value: In
         <h2>{create ? "What should this feed notice?" : "What else should this feed pay attention to?"}</h2>
         <p>{create
           ? "Describe the outcome, sources, or decisions that matter. Tend will turn the brief into a local feed."
-          : "Describe it naturally. Codex can refine the recipe with you in the feed thread."}</p>
+          : "Describe it naturally. Claude can refine the recipe with you in the feed."}</p>
         {create && <div className="setup-expectation">
-          <strong>One feed, one Codex thread</strong>
-          <span>Keep Tend open in Codex Desktop's in-app browser. After creation, connect one fresh Codex thread to operate this feed.</span>
+          <strong>One feed, one Claude session</strong>
+          <span>Keep Tend open in a Claude session's in-app browser preview. After creation, arm one Claude session to operate this feed.</span>
         </div>}
         <textarea
           aria-label={create ? "Feed brief" : "Source brief"}
