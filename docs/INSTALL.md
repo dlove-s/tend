@@ -4,9 +4,9 @@
 
 ### Packaged Release
 
-- Codex Desktop for the intended in-app-browser and feed-thread workflow
+- A Claude Code session for the intended in-app-browser preview and feed-lane workflow
 - A Tend archive matching your platform
-- Any Codex connectors used by your feeds
+- Any connectors (MCP or otherwise) used by your feeds
 
 The packaged `tend` executable is self-contained and includes the Bun runtime. Bun, Node.js, and
 pnpm are not required to run a downloaded release.
@@ -38,8 +38,8 @@ Open:
 http://127.0.0.1:4321
 ```
 
-Open this URL in Codex Desktop's in-app browser. Tend's intended first-run flow keeps the feed UI
-beside the Codex thread that operates it.
+Open this URL in a Claude Code session's in-app browser preview. Tend's intended first-run flow keeps
+the feed UI beside the Claude session that operates it.
 
 The local API listens on:
 
@@ -93,25 +93,46 @@ xattr -d com.apple.quarantine ./tend
 ./tend start
 ```
 
-## Codex Setup
+## Claude Setup
 
-Create or choose a feed in Tend, then start one fresh Codex Desktop thread for that feed. Do not
-share one thread across multiple feeds.
+Tend is Claude-native: the default lane wakes a Claude Code session to drain queued work. Create or
+choose a feed in Tend, keep it open in a Claude session's in-app browser preview, then arm that same
+session for the feed. Do not share one session across multiple feeds.
 
 ```sh
-pnpm tend -- setup codex --feed <feed-id>
+pnpm tend -- setup claude --feed <feed-id>
 ```
 
-Paste the complete output into that feed's thread. It binds the thread, installs or updates one
-heartbeat, and asks the thread to handle the feed once immediately.
+Paste the complete output into that Claude session. It binds the feed's Claude lane (the server mints
+the lane id), routes the feed's drain agent to Claude, and points the session at the `/tend` skill to
+register presence and start the wake monitor so queued work activates the session without polling.
 
-To run the feed manually later, open or wake that same thread and say:
+You can also just run the `/tend` skill in the session that has the feed open — it arms presence and
+the wake monitor directly.
+
+To run the feed manually later, open or wake that same session and say:
 
 ```text
 go deal with the feed
 ```
 
-Use the manual wake after a paused or missing heartbeat, or whenever you want an immediate sweep.
+Use the manual wake whenever you want an immediate sweep, or after a session has been closed and
+reopened.
+
+See [`docs/CLAUDE_THREAD.md`](./CLAUDE_THREAD.md) for the full Claude lane operating contract.
+
+### Alternative: Codex lane
+
+Tend still supports a Codex feed thread as an additional drain lane. To bind one, start a fresh Codex
+Desktop thread for the feed and paste the output of:
+
+```sh
+pnpm tend -- setup codex --feed <feed-id>
+```
+
+It binds the thread, installs one heartbeat, and handles the feed once. See [`AGENTS.md`](../AGENTS.md)
+for the Codex feed-thread protocol. A feed can be routed between lanes with
+`pnpm tend -- cli feed:drain-agent --feed <feed-id> --agent <codex|claude>`.
 
 ## Health Check
 

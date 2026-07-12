@@ -78,33 +78,32 @@ function ThreadSetupGuide({
   thread: ThreadBinding;
   onCopied: (message: string) => void;
 }) {
-  if (thread.heartbeat.status === "installed") return null;
-  const command = `tend setup codex --feed ${feedId}`;
-  const bound = Boolean(thread.homeThreadId);
+  if (thread.agents?.claude) return null;
+  const command = `tend setup claude --feed ${feedId}`;
   const copyCommand = async () => {
     try {
       await navigator.clipboard.writeText(command);
-      onCopied("Codex setup command copied");
+      onCopied("Claude setup command copied");
     } catch {
       onCopied("Could not copy automatically. Select the command and copy it manually.");
     }
   };
   return (
-    <div className={`thread-onboarding${bound ? " is-partial" : ""}`}>
-      <div className="panel-kicker">{bound ? "Finish Codex setup" : "Codex-native setup"}</div>
-      <h3>{bound ? "Keep setup in this same thread." : `Give ${feedName} its own Codex thread.`}</h3>
-      <p>Tend is intended to stay open in Codex Desktop's in-app browser. You review the feed here; its dedicated Codex thread collects sources and handles queued work.</p>
+    <div className="thread-onboarding">
+      <div className="panel-kicker">Claude-native setup</div>
+      <h3>Arm a Claude session for {feedName}.</h3>
+      <p>Tend is intended to stay open in a Claude session's in-app browser preview. That same session reviews the feed here and drains its queued work.</p>
       <ol>
-        {!bound && <li>Create a fresh Codex thread for this feed. Do not share it with another feed.</li>}
-        <li>Run the setup command from your Tend install, then paste its output into {bound ? "the bound thread" : "that new thread"}.</li>
-        <li>Let the thread bind itself and install one heartbeat before using the feed actions.</li>
+        <li>Keep this feed open in a Claude session's in-app browser preview.</li>
+        <li>Run the setup command from your Tend install and paste its output into that session — or just run <code>/tend</code> to arm the session.</li>
+        <li>Let the session bind its Claude lane and start the wake monitor before using the feed actions.</li>
       </ol>
       <div className="thread-setup-command">
         <code>{command}</code>
-        <button type="button" className="button ghost" aria-label={`Copy Codex setup command for ${feedName}`} onClick={() => void copyCommand()}>Copy command</button>
+        <button type="button" className="button ghost" aria-label={`Copy Claude setup command for ${feedName}`} onClick={() => void copyCommand()}>Copy command</button>
       </div>
-      <p className="thread-command-note">From an unpacked release, use <code>./tend</code>. From source, use <code>pnpm tend --</code> before <code>setup codex --feed {feedId}</code>.</p>
-      <p className="thread-manual-wake"><strong>Manual activation:</strong> open or wake that same thread and say <code>go deal with the feed</code> for the first run, after a paused heartbeat, or whenever you want an immediate sweep.</p>
+      <p className="thread-command-note">From an unpacked release, use <code>./tend</code>. From source, use <code>pnpm tend --</code> before <code>setup claude --feed {feedId}</code>.</p>
+      <p className="thread-manual-wake"><strong>Manual activation:</strong> open or wake that Claude session and say <code>go deal with the feed</code> for the first run or whenever you want an immediate sweep.</p>
     </div>
   );
 }
@@ -171,13 +170,13 @@ export function PromptWorkspace({ state, refreshVersion, tab, onTab, onBack, onI
             {feedWorkspace.prompts.map((prompt: any) => <WorkspaceEditor key={prompt.name} label={prompt.name} content={prompt.content} onFocus={() => onTargetFocus({ kind: "prompt_layer", feedId, promptId: prompt.name })} onSave={(content) => save(() => post(`/api/feeds/${feedId}/prompts/${encodeURIComponent(prompt.name)}`, { content }), "Feed prompt saved", reloadFeed)} onUndo={(revisionId) => save(() => post(`/api/revisions/${revisionId}/revert`), "Feed prompt restored", reloadFeed)} />)}
           </section>
           <section className="workspace-section">
-            <h2>Home thread</h2>
+            <h2>Agent lane</h2>
             <ThreadSetupGuide feedId={feedId} feedName={state.active.config.name} thread={feedWorkspace.thread} onCopied={onSaved} />
             <div className="thread-status">
-              <div><span>Thread</span><strong>{feedWorkspace.thread.homeThreadId ?? "Not bound"}</strong></div>
-              <div><span>Bound</span><strong>{feedWorkspace.thread.boundAt ? new Date(feedWorkspace.thread.boundAt).toLocaleString() : "Not yet"}</strong></div>
-              <div><span>Heartbeat</span><strong>{feedWorkspace.thread.heartbeat.status.replace("_", " ")}</strong></div>
-              <div><span>Cadence</span><strong>{feedWorkspace.thread.heartbeat.cadence ?? "Not configured"}</strong></div>
+              <div><span>Drain agent</span><strong>{feedWorkspace.thread.drainAgent ?? "codex"}</strong></div>
+              <div><span>Claude lane</span><strong>{feedWorkspace.thread.agents?.claude?.threadId ?? "Not bound"}</strong></div>
+              <div><span>Bound</span><strong>{feedWorkspace.thread.agents?.claude?.boundAt ? new Date(feedWorkspace.thread.agents.claude.boundAt).toLocaleString() : feedWorkspace.thread.boundAt ? new Date(feedWorkspace.thread.boundAt).toLocaleString() : "Not yet"}</strong></div>
+              <div><span>Codex thread</span><strong>{feedWorkspace.thread.homeThreadId ?? "Not bound"}</strong></div>
             </div>
           </section>
         </div>

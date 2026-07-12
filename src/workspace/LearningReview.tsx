@@ -37,7 +37,7 @@ export function LearningReview({ feed, proposals, onBack, onApply, onReject }: {
       <div className="learning-empty">
         <div className="panel-kicker">Learning pass</div>
         <h1>No learning proposal is waiting.</h1>
-        <p>When you finish a sweep, Codex can ask whether you want to compound what it learned. If you say yes, the editable proposal will appear here before anything changes.</p>
+        <p>When you finish a sweep, Claude can ask whether you want to compound what it learned. If you say yes, the editable proposal will appear here before anything changes.</p>
       </div>
     </main>
   );
@@ -46,7 +46,7 @@ export function LearningReview({ feed, proposals, onBack, onApply, onReject }: {
       <button className="workspace-back" onClick={onBack}>← Back to feed</button>
       <div className="learning-title">
         <div className="panel-kicker">Learning pass · {feed.config.name}</div>
-        <h1>Review what Codex learned.</h1>
+        <h1>Review what Claude learned.</h1>
         <p>Keep this compact. Edit the proposed feed policy directly, then apply it only when it captures the judgment you want to preserve.</p>
       </div>
       <section className="learning-review">

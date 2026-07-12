@@ -1,8 +1,9 @@
 # Agent Contract
 
-Tend is designed for agent threads operating through a local binary plus a JSON CLI command
-contract. Codex Desktop threads are the primary lane; a Claude Code session can operate a second,
-explicitly-routed lane per feed (see `docs/CLAUDE_THREAD.md` for that lane's protocol).
+Tend is designed for agent sessions operating through a local binary plus a JSON CLI command
+contract. A Claude Code session is the default lane, the front door (see `docs/CLAUDE_THREAD.md` for
+that lane's protocol); a Codex Desktop feed thread can operate the same explicitly-routed lane per
+feed as the documented alternative (see `AGENTS.md`).
 
 The CLI contract version is reported by `tend version` and `/api/status`. Treat new commands as
 additive by default, and document breaking command or response changes in `CHANGELOG.md`.
@@ -10,21 +11,27 @@ additive by default, and document breaking command or response changes in `CHANG
 ## Setup
 
 1. Run `tend start`.
-2. Open Tend in Codex Desktop's in-app browser.
-3. Start one fresh Codex thread per feed.
-4. Paste the prompt from `tend setup codex --feed <feed-id>` into that thread.
-5. Bind that thread to the feed with `tend cli feed:bind`.
-6. Create one heartbeat automation on that same thread.
+2. Open Tend in a Claude Code session's in-app browser preview.
+3. Arm one fresh Claude Code session per feed.
+4. Paste the prompt from `tend setup claude --feed <feed-id>` into that session, or run the `/tend`
+   skill in the session that already has the feed open.
+5. Bind the feed's Claude lane with `tend cli feed:bind --feed <feed-id> --agent claude`.
+6. Register presence and start the wake monitor (the `/tend` skill does both).
 7. Handle the feed once immediately after setup.
 
-The manual activation contract is to open or wake that same feed thread and say
+To use the Codex lane instead, paste the prompt from `tend setup codex --feed <feed-id>` into a
+fresh Codex Desktop thread and bind it with `tend cli feed:bind --feed <feed-id> --thread <thread>`;
+route a feed between lanes with `tend cli feed:drain-agent --feed <feed-id> --agent <codex|claude>`.
+
+The manual activation contract is to open or wake that same feed session and say
 `go deal with the feed`. Use it for the first run, when the heartbeat is paused or missing, or when
 the user wants an immediate sweep.
 
 ## Runner Rules
 
-- Always pass your own thread identity: the local Codex `threadId` for the Codex lane, or the
-  feed's server-minted Claude lane id (`thread.agents.claude.threadId`) for the Claude lane.
+- Always pass your own lane identity: the feed's server-minted Claude lane id
+  (`thread.agents.claude.threadId`) for the Claude lane, or the local Codex `threadId` for the
+  Codex lane.
 - Treat `homeThreadId` as the Codex owner of the feed. Work is lane-scoped: `work:list` returns
   queued items plus working items for your effective lane (item `assignee`, else the feed's
   `drainAgent`, else codex), and `work:claim` only offers that lane's items. Never attempt to
@@ -80,8 +87,8 @@ Run `tend cli help` for the full command surface. Core feed-runner commands are:
 | Publish On Your Mind | `tend cli context:publish --thread <thread> --context-file <path>` |
 | Inspect context health | `tend cli context:status` |
 | Read prompt-safe feed context | `tend cli context:for-feed --feed <feed>` |
-| Bind feed thread | `tend cli feed:bind --feed <feed> --thread <thread>` |
-| Bind the Claude lane (server-minted id; `--replace` fences prior sessions) | `tend cli feed:bind --feed <feed> --agent claude [--replace]` |
+| Bind the feed's Claude lane, the default (server-minted id; `--replace` fences prior sessions) | `tend cli feed:bind --feed <feed> --agent claude [--replace]` |
+| Bind a Codex home thread (alternative lane) | `tend cli feed:bind --feed <feed> --thread <thread>` |
 | Set a feed's drain agent | `tend cli feed:drain-agent --feed <feed> --agent <codex\|claude>` |
 | Register agent presence (heartbeat) | `tend cli agent:presence --agent claude --session <id> [--label <text>]` |
 | Propose heartbeat | `tend cli feed:heartbeat:propose --feed <feed> --cadence <cadence>` |

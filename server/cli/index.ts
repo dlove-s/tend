@@ -5,7 +5,7 @@ import { doctorCommand, statusCommand } from "./health";
 import { helpCommand } from "./help";
 import { runOperatorCli } from "./operator";
 import { healthCommand, logsCommand, restartCommand, stopCommand } from "./service";
-import { setupCodexCommand } from "./setup";
+import { setupClaudeCommand, setupCodexCommand } from "./setup";
 import { startCommand } from "./start";
 import { versionCommand } from "./version";
 
@@ -42,8 +42,9 @@ export async function runTendCli(rawArgs: string[]): Promise<void> {
       await doctorCommand();
       break;
     case "setup":
-      if (subcommand !== "codex") throw new Error("Expected: tend setup codex [--feed <id> | --chronicle]");
-      setupCodexCommand(rest);
+      if (subcommand === "claude") setupClaudeCommand(rest);
+      else if (subcommand === "codex") setupCodexCommand(rest);
+      else throw new Error("Expected: tend setup claude [--feed <id>] or tend setup codex [--feed <id> | --chronicle]");
       break;
     case "backup":
       if (subcommand === "export") await backupExportCommand(rest[0] ?? path.join(attentionHome(), "exports", `attention-${Date.now()}`));

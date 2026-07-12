@@ -1,4 +1,9 @@
-# Feed Thread Runbook
+# Feed Lane Runbook
+
+This runbook is the shared operator procedure for both drain lanes. By default a feed drains to a
+Claude Code session (the front door); a Codex feed thread can operate the same lane as the documented
+alternative. A Claude session additionally follows `docs/CLAUDE_THREAD.md`; a Codex thread
+additionally follows `AGENTS.md`. The mechanics below apply to whichever lane is draining.
 
 Operate Tend through the canonical `tend` executable on `PATH`. The CLI and server share
 runtime state under `~/.attention/` by default, including the SQLite authority database, readable
@@ -19,12 +24,12 @@ tend stop
 tend logs
 ```
 
-It owns API/UI port `4332`, the live PID lock, and the live health check. Feed threads run
+It owns API/UI port `4332`, the live PID lock, and the live health check. Feed lanes run
 `tend health` before operating through the API or CLI. They never start servers, kill ports, or
 choose worktrees themselves. Use `tend doctor` for diagnostics. Use `ATTENTION_HOME=<tmp>`
 with `tend start --foreground` when validating a branch against isolated runtime state.
 
-Feed threads own their feed work end to end through the canonical API or CLI. When a feed pass
+Feed lanes own their feed work end to end through the canonical API or CLI. When a feed pass
 reveals a cross-app UX or code problem, record it without editing Tend product code from the feed
 lane:
 
@@ -33,7 +38,7 @@ tend cli feedback:record \
   --feed <feed-id> \
   --title "<short pain point>" \
   --detail "<what happened, expected behavior, and useful card or sweep context>" \
-  --source-thread <Codex-thread-id>
+  --source-thread <thread-or-session-id>
 ```
 
 Then hand the same concise packet to the `Improve Tend workflow` thread. The improvement lane can
@@ -42,7 +47,7 @@ review the durable inbox with `tend cli feedback:list` and close landed fixes wi
 
 ## First Local Setup
 
-When Codex starts this app on a Mac, check for Monologue before asking the user to configure
+When you first start this app on a Mac, check for Monologue before asking the user to configure
 dictation:
 
 ```bash
@@ -92,17 +97,18 @@ tend cli action:verify --feed <feed-id> --work <work-id> --token <capability-tok
 Repeat claim until it returns the idle handshake. An active claimed item also appears in `work:list`
 for its own lane and is replayed by `work:claim`, so restart recovery stays simple and visible.
 
-Before Codex claims a mistaken dictated note, correct it with `work:edit` or return its card to the
+Before the lane claims a mistaken dictated note, correct it with `work:edit` or return its card to the
 sweep with `card:return-to-review`. Returning a queued card cancels its unstarted local work. A done
 card can be returned for another review pass, but this does not reverse an external action that
 already happened.
 
 ## Claude Lane
 
-Feeds can route work to a Claude Code session alongside the Codex home thread. The routing is
-explicit: a per-item `assignee` set from the dock's route-to-Claude toggle, or the feed-level
-drain agent (`tend cli feed:drain-agent --feed <feed> --agent claude`). Work is lane-scoped
-at claim time, so the two lanes never see each other's items.
+A feed drains to a Claude Code session by default; a Codex feed thread can operate the same lane as
+the documented alternative. The routing is explicit: the feed-level drain agent
+(`tend cli feed:drain-agent --feed <feed> --agent <codex|claude>`), or a per-item `assignee` set
+from the dock's route toggle. Work is lane-scoped at claim time, so the two lanes never see each
+other's items.
 
 - The Claude session is woken by ledger lines in `data/agents/claude/wake.jsonl` and operates
   under `docs/CLAUDE_THREAD.md`.

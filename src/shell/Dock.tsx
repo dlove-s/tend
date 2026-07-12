@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { agentLabel } from "../../shared/lanes";
 import { usePushToTalk } from "../state/pushToTalk";
 import { sameTarget } from "../state/voiceTarget";
 import type { FeedView, VoiceTarget, WorkspaceView } from "../types";
@@ -60,7 +61,7 @@ export function Dock({
   };
   const { isPushingToTalk } = usePushToTalk(inputRef, submit, state.dictation.activationCode);
   const scopeTone = targetScopeTone(target);
-  const routedAgent = routeToClaude ? "Claude" : "Codex";
+  const routedAgent = routeToClaude ? "Claude" : agentLabel(feed.thread.drainAgent ?? "codex");
   const onDockKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();

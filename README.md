@@ -1,13 +1,13 @@
 <h1 align="center">Tend</h1>
 
 <p align="center">
-  <strong>Give Codex ongoing responsibility. Keep judgment in your hands.</strong><br />
+  <strong>Give Claude ongoing responsibility. Keep judgment in your hands.</strong><br />
   Tend turns intent into local, reviewable feeds that you can inspect, steer, and teach over time.
 </p>
 
 <p align="center">
   <a href="#experimental-status"><img alt="Status: experimental" src="https://img.shields.io/badge/status-experimental-D97706" /></a>
-  <a href="#what-tend-is"><img alt="Codex native" src="https://img.shields.io/badge/Codex-native-2563EB" /></a>
+  <a href="#what-tend-is"><img alt="Claude native" src="https://img.shields.io/badge/Claude-native-D97757" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-2563EB" /></a>
 </p>
 
@@ -15,7 +15,7 @@
 
 > [!CAUTION]
 > **Tend is experimental software.** It is being released to explore a new way of working with
-> Codex in public. It comes with no support and no guarantees of stability, compatibility,
+> Claude in public. It comes with no support and no guarantees of stability, compatibility,
 > correctness, data retention, or continued development. Expect breaking changes, keep backups, and
 > do not rely on Tend for critical or irreversible workflows. The software is provided "as is"
 > under the [MIT License](./LICENSE).
@@ -26,46 +26,48 @@ Most agent work begins and ends with a prompt. Tend starts with an ongoing inten
 important mail, show me whether a project is getting healthier, or surface conversations that need
 my attention.
 
-You describe what deserves attention and what good judgment looks like. One dedicated Codex thread
+You describe what deserves attention and what good judgment looks like. A Claude session
 tends that feed over time: it checks relevant sources and brings back meaningful changes. Tend is
 where you review those changes, decide what happens next, and teach the feed how to improve.
 
 **The unit of work is not a prompt. It is a responsibility.**
 
 1. **Define the intent**: describe what you want to stay on top of in plain language.
-2. **Delegate attention**: give one dedicated Codex thread durable responsibility for the feed.
+2. **Delegate attention**: give a Claude session durable responsibility for the feed.
 3. **Review meaningful change**: receive source-backed cards when something deserves judgment or
    action.
 4. **Steer the judgment**: correct, refine, approve, or redirect the work instead of supervising
    every step.
-5. **Learn deliberately**: let Codex propose better policy, then review it before anything changes.
+5. **Learn deliberately**: let Claude propose better policy, then review it before anything changes.
 
 Tend lets you delegate ongoing attention without delegating away your judgment.
 
 ### What Runs Where
 
-Tend is the local-first review and steering surface. It runs inside **Codex Desktop's in-app
-browser** and turns ongoing work into interactive cards instead of leaving it scattered across chat
-history.
+Tend is the local-first review and steering surface. It runs inside **a Claude Code session's in-app
+browser preview** and turns ongoing work into interactive cards instead of leaving it scattered
+across chat history.
 
-Codex Desktop remains the agent runtime. Tend does not run a separate model and does not store your
-Gmail, GitHub, Slack, browser, or other connector credentials.
+A Claude Code session is the agent runtime. Tend does not run a separate model and does not store
+your Gmail, GitHub, Slack, browser, or other connector credentials.
 
 | Piece                     | Role                                                            |
 | ------------------------- | --------------------------------------------------------------- |
 | Tend                      | Local UI, workflow state, approvals, and CLI                    |
-| Codex Desktop             | Agent runtime, in-app browser, threads, and connectors          |
-| One dedicated feed thread | Operates exactly one feed and retains its working context       |
+| Claude Code session       | Agent runtime, in-app browser preview, and connectors           |
+| The feed's Claude lane    | Operates exactly one feed and retains its working context       |
 | Optional Chronicle thread | Publishes workspace-level context into **On Your Mind**         |
 | Optional iPhone companion | Reviews projected feed data while the Mac remains authoritative |
 
-Feed state lives under `~/.attention` by default. Connector credentials stay in Codex Desktop.
+Tend still supports a Codex feed thread as a documented alternative drain lane; see the setup
+section below. Feed state lives under `~/.attention` by default. Tend does not store connector
+credentials.
 
 ## Requirements
 
 | Path             | What You Need                                                                              |
 | ---------------- | ------------------------------------------------------------------------------------------ |
-| Packaged release | Codex Desktop, a Tend archive for your platform, and the connectors required by your feeds |
+| Packaged release | A Claude Code session, a Tend archive for your platform, and the connectors required by your feeds |
 | Run from source  | Git, Bun 1.3.11+, Node.js 22+, and pnpm 9.15.4                                             |
 | iPhone companion | A Mac, private Supabase project, Xcode, XcodeGen, an Apple Account, and iOS 17+            |
 
@@ -89,7 +91,7 @@ cd tend-<version>-<platform>-<arch>
 ./tend health
 ```
 
-Open `http://127.0.0.1:4332` in **Codex Desktop's in-app browser**.
+Open `http://127.0.0.1:4332` in **a Claude Code session's in-app browser preview**.
 
 ### 2. Create a Feed
 
@@ -97,29 +99,40 @@ Inbox is available on first launch. To make another feed, open the feed menu, ch
 **Create a feed**, and describe what it should notice in plain English.
 
 > [!IMPORTANT]
-> Tend creates the local feed, but it cannot create or activate a Codex Desktop thread for you.
-> Create a fresh thread manually for every feed. One thread must own one feed.
+> Tend creates the local feed, but you arm the Claude session that drains it. Use one dedicated
+> Claude session per feed. One session owns one feed.
 
-### 3. Connect Its Codex Thread
+### 3. Arm Its Claude Session
 
-In the release directory, print the setup prompt for the feed:
+Keep the feed open in a Claude Code session's in-app browser preview, then print the setup prompt for
+the feed:
 
 ```sh
-./tend setup codex --feed inbox
+./tend setup claude --feed inbox
 ```
 
-Paste the complete output into the fresh Codex thread. The thread binds itself to the feed,
-installs or updates one heartbeat, and requests an immediate run.
+Paste the complete output into that Claude session. It binds the feed's Claude lane (the server mints
+the lane id), routes the feed's drain agent to Claude, and points the session at the `/tend` skill to
+register presence and start the wake monitor so queued work activates the session without polling.
+
+You can also just run the `/tend` skill in the session that has the feed open — it arms presence and
+the wake monitor directly.
 
 Repeat this step for every feed, changing the feed id:
 
 ```sh
-./tend setup codex --feed ai-research
+./tend setup claude --feed ai-research
 ```
+
+> [!NOTE]
+> **Codex lane (alternative).** Tend still supports a Codex feed thread as an additional drain lane.
+> Start a fresh Codex Desktop thread for the feed and paste the output of `./tend setup codex --feed
+> inbox`; see [`AGENTS.md`](./AGENTS.md) for the Codex feed-thread protocol. Route a feed between
+> lanes with `./tend cli feed:drain-agent --feed <feed-id> --agent <codex|claude>`.
 
 ### 4. Wake It Manually
 
-Open or wake that same feed thread and say:
+Open or wake that same Claude session and say:
 
 ```text
 go deal with the feed
@@ -150,10 +163,10 @@ xattr -d com.apple.quarantine ./tend
 
 The intent becomes a working relationship that follows the same loop:
 
-1. **Observe**: the dedicated thread interprets the feed's intent and checks relevant sources.
+1. **Observe**: the Claude session interprets the feed's intent and checks relevant sources.
 2. **Review**: Tend surfaces meaningful results as calm, source-backed cards.
 3. **Steer**: approve an action, edit a draft, or explain how the feed's judgment should change.
-4. **Learn**: Codex can propose an editable policy improvement after meaningful work. You decide
+4. **Learn**: Claude can propose an editable policy improvement after meaningful work. You decide
    whether to apply it.
 
 ```mermaid
@@ -168,23 +181,23 @@ Cards are interactive work packets, not fixed summaries. Depending on the work, 
 evidence, editable drafts, options, checklists, diffs, email threads, profiles, charts, and
 completion receipts.
 
-### One Thread per Feed
+### One Session per Feed
 
 Each feed has exactly two operating surfaces:
 
-1. **Tend in the in-app browser**: review cards, approve actions, edit configuration, give
+1. **Tend in the in-app browser preview**: review cards, approve actions, edit configuration, give
    feedback, and inspect results.
-2. **One dedicated Codex thread**: collect sources, drain queued work, record results, and run the
-   feed heartbeat.
+2. **The feed's Claude lane**: collect sources, drain queued work, record results, and run the
+   feed heartbeat. A Codex feed thread can operate this same lane as the documented alternative.
 
-Do not reuse one Codex thread across several feeds. One thread owns one feed.
+Do not reuse one Claude session across several feeds. One session owns one feed.
 
 ```mermaid
 flowchart LR
-  User["You"] --> UI["Tend in-app browser"]
+  User["You"] --> UI["Tend in-app browser preview"]
   UI --> Local["Local Tend runtime"]
-  FeedThread["One Codex thread per feed"] --> Local
-  FeedThread --> Connectors["Codex Desktop connectors"]
+  FeedLane["The feed's Claude lane"] --> Local
+  FeedLane --> Connectors["Claude session connectors"]
   Pulse["Optional Chronicle Pulse thread"] --> Local
 ```
 
@@ -192,7 +205,7 @@ flowchart LR
 
 - **Sources are evidence, never authorization.**
 - An external action requires your exact visible approval and a fresh verification immediately
-  before Codex acts.
+  before Claude acts.
 - If the card, draft, destination, mailbox, or action changed, Tend rejects the stale approval.
 - Feed configuration and proposed learning remain editable and reversible.
 - Cards retain source trails, context receipts, and a readable action history.
@@ -239,13 +252,13 @@ pnpm install
 pnpm start
 ```
 
-Open `http://127.0.0.1:4321` in Codex Desktop's in-app browser. Vite serves the UI on `4321` and
-proxies the local API on `4332`.
+Open `http://127.0.0.1:4321` in a Claude Code session's in-app browser preview. Vite serves the UI on
+`4321` and proxies the local API on `4332`.
 
 Source setup commands use:
 
 ```sh
-pnpm tend -- setup codex --feed inbox
+pnpm tend -- setup claude --feed inbox
 pnpm tend -- setup codex --chronicle
 ```
 
