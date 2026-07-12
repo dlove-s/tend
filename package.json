@@ -15,6 +15,7 @@
     "check": "pnpm typecheck && pnpm lint && pnpm test",
     "test": "bun test",
     "seed:demo": "bun tend.ts cli demo:seed",
+    "cora:sweep": "bun scripts/cora-sweep.ts",
     "tend": "bun tend.ts",
     "tend:build": "bun scripts/clean-legacy-cli-artifacts.ts && bun build ./tend.ts --compile --outfile dist-bin/tend",
     "tend:smoke": "bun scripts/smoke-binary.ts",
